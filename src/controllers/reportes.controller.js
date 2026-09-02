@@ -6,11 +6,8 @@ const { crearDocumento, escribirEstadoCuentaCliente, escribirResumenGeneral } = 
 const estadoCuentaCliente = asyncHandler(async (req, res) => {
   const { desde, hasta } = req.query;
 
-  // TODO: reemplazar por req.user.propietarioId una vez aplicado el refactor multi-tenant
-  const propietarioId = req.user.propietarioId;
-
   const datos = await reportesService.obtenerEstadoCuentaCliente({
-    propietarioId,
+    propietarioId: req.user.propietarioId,
     clienteId: req.params.id,
     desde,
     hasta,
@@ -31,10 +28,11 @@ const estadoCuentaCliente = asyncHandler(async (req, res) => {
 const resumenGeneral = asyncHandler(async (req, res) => {
   const { desde, hasta } = req.query;
 
-  // TODO: reemplazar por req.user.propietarioId una vez aplicado el refactor multi-tenant
-  const propietarioId = req.user.propietarioId;
-
-  const datos = await reportesService.obtenerResumenGeneral({ propietarioId, desde, hasta });
+  const datos = await reportesService.obtenerResumenGeneral({
+    propietarioId: req.user.propietarioId,
+    desde,
+    hasta,
+  });
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="resumen_general.pdf"');

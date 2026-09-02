@@ -1,9 +1,9 @@
 // src/services/productos.service.js
 const db = require('../config/db');
 
-async function listar({ busqueda, activo, stockBajo }) {
-  const condiciones = [];
-  const valores = [];
+async function listar({ propietarioId, busqueda, activo, stockBajo }) {
+  const condiciones = ['propietario_id = $1'];
+  const valores = [propietarioId];
 
   if (busqueda) {
     valores.push(`%${busqueda}%`);
@@ -19,12 +19,10 @@ async function listar({ busqueda, activo, stockBajo }) {
     condiciones.push(`stock_actual <= stock_minimo`);
   }
 
-  const where = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
-
   const { rows } = await db.query(
     `SELECT id, nombre, categoria, costo_unitario, precio_venta, stock_actual, stock_minimo, imagen_url, activo, created_at
      FROM productos
-     ${where}
+     WHERE ${condiciones.join(' AND ')}
      ORDER BY nombre ASC`,
     valores
   );
@@ -32,24 +30,25 @@ async function listar({ busqueda, activo, stockBajo }) {
   return rows;
 }
 
-async function obtenerPorId(id) {
-  const { rows } = await db.query('SELECT * FROM productos WHERE id = $1', [id]);
+async function obtenerPorId(propietarioId, id) {
+  const { rows } = await db.query(
+    'SELECT * FROM productos WHERE id = $1 AND propietario_id = $2',
+    [id, propietarioId]
+  );
   return rows[0] || null;
 }
 
-async function crear({ nombre, categoria, costo_unitario, precio_venta, stock_minimo, imagen_url, createdBy }) {
+async function crear({ propietarioId, nombre, categoria, costo_unitario, precio_venta, stock_minimo, imagen_url, createdBy }) {
   const { rows } = await db.query(
-    `INSERT INTO productos (nombre, categoria, costo_unitario, precio_venta, stock_minimo, imagen_url, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO productos (propietario_id, nombre, categoria, costo_unitario, precio_venta, stock_minimo, imagen_url, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [nombre, categoria, costo_unitario ?? 0, precio_venta ?? 0, stock_minimo ?? 0, imagen_url, createdBy]
+    [propietarioId, nombre, categoria, costo_unitario ?? 0, precio_venta ?? 0, stock_minimo ?? 0, imagen_url, createdBy]
   );
   return rows[0];
 }
 
-async function actualizar(id, campos) {
-  // Nota: stock_actual NO se actualiza acá directamente.
-  // Sube por compras_stock y baja por despachos, para mantener consistencia.
+async function actualizar(propietarioId, id, campos) {
   const permitidos = ['nombre', 'categoria', 'costo_unitario', 'precio_venta', 'stock_minimo', 'imagen_url', 'activo'];
   const sets = [];
   const valores = [];
@@ -61,20 +60,22 @@ async function actualizar(id, campos) {
     }
   }
 
-  if (sets.length === 0) return obtenerPorId(id);
+  if (sets.length === 0) return obtenerPorId(propietarioId, id);
 
-  valores.push(id);
+  valores.push(id, propietarioId);
   const { rows } = await db.query(
-    `UPDATE productos SET ${sets.join(', ')} WHERE id = $${valores.length} RETURNING *`,
+    `UPDATE productos SET ${sets.join(', ')}
+     WHERE id = $${valores.length - 1} AND propietario_id = $${valores.length}
+     RETURNING *`,
     valores
   );
   return rows[0] || null;
 }
 
-async function eliminar(id) {
+async function eliminar(propietarioId, id) {
   const { rows } = await db.query(
-    'UPDATE productos SET activo = false WHERE id = $1 RETURNING id',
-    [id]
+    'UPDATE productos SET activo = false WHERE id = $1 AND propietario_id = $2 RETURNING id',
+    [id, propietarioId]
   );
   return rows[0] || null;
 }

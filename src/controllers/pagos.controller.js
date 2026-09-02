@@ -9,13 +9,22 @@ const registrar = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'cliente_id y monto son requeridos' });
   }
 
-  const pago = await pagosService.registrar({ ...req.body, createdBy: req.user.id });
+  const pago = await pagosService.registrar({
+    ...req.body,
+    propietarioId: req.user.propietarioId,
+    createdBy: req.user.id,
+  });
   res.status(201).json({ pago });
 });
 
 const listar = asyncHandler(async (req, res) => {
   const { cliente_id, desde, hasta } = req.query;
-  const pagos = await pagosService.listar({ cliente_id, desde, hasta });
+  const pagos = await pagosService.listar({
+    propietarioId: req.user.propietarioId,
+    cliente_id,
+    desde,
+    hasta,
+  });
   res.json({ pagos });
 });
 

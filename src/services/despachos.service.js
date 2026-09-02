@@ -1,17 +1,17 @@
 // src/services/despachos.service.js
 const db = require('../config/db');
 
-async function obtenerSaldoCliente(executor, clienteId) {
+async function obtenerSaldoCliente(executor, propietarioId, clienteId) {
   const { rows } = await executor.query(
     `SELECT
-       COALESCE((SELECT SUM(total) FROM despachos WHERE cliente_id = $1 AND estado = 'entregado'), 0)
-       - COALESCE((SELECT SUM(monto) FROM pagos WHERE cliente_id = $1), 0) AS saldo`,
-    [clienteId]
+       COALESCE((SELECT SUM(total) FROM despachos WHERE cliente_id = $1 AND propietario_id = $2 AND estado = 'entregado'), 0)
+       - COALESCE((SELECT SUM(monto) FROM pagos WHERE cliente_id = $1 AND propietario_id = $2), 0) AS saldo`,
+    [clienteId, propietarioId]
   );
   return Number(rows[0].saldo);
 }
 
-async function crear({ cliente_id, items, notas, createdBy }) {
+async function crear({ propietarioId, cliente_id, items, notas, createdBy }) {
   if (!items || items.length === 0) {
     throw Object.assign(new Error('El despacho debe tener al menos un producto'), { status: 400 });
   }
@@ -21,25 +21,24 @@ async function crear({ cliente_id, items, notas, createdBy }) {
   try {
     await client.query('BEGIN');
 
-    // Bloquea la fila del cliente para evitar condiciones de carrera con otro despacho simultáneo
     const { rows: clienteRows } = await client.query(
-      'SELECT * FROM clientes WHERE id = $1 FOR UPDATE',
-      [cliente_id]
+      'SELECT * FROM clientes WHERE id = $1 AND propietario_id = $2 FOR UPDATE',
+      [cliente_id, propietarioId]
     );
     const cliente = clienteRows[0];
     if (!cliente) {
       throw Object.assign(new Error('Cliente no encontrado'), { status: 404 });
     }
 
-    const saldoActual = await obtenerSaldoCliente(client, cliente_id);
+    const saldoActual = await obtenerSaldoCliente(client, propietarioId, cliente_id);
 
     let total = 0;
     const itemsProcesados = [];
 
     for (const item of items) {
       const { rows: productoRows } = await client.query(
-        'SELECT * FROM productos WHERE id = $1 FOR UPDATE',
-        [item.producto_id]
+        'SELECT * FROM productos WHERE id = $1 AND propietario_id = $2 FOR UPDATE',
+        [item.producto_id, propietarioId]
       );
       const producto = productoRows[0];
 
@@ -68,10 +67,10 @@ async function crear({ cliente_id, items, notas, createdBy }) {
       saldoActual + total > Number(cliente.limite_credito) && Number(cliente.limite_credito) > 0;
 
     const { rows: despachoRows } = await client.query(
-      `INSERT INTO despachos (cliente_id, total, alerta_credito_al_momento, notas, created_by)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO despachos (propietario_id, cliente_id, total, alerta_credito_al_momento, notas, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [cliente_id, total, alertaCredito, notas, createdBy]
+      [propietarioId, cliente_id, total, alertaCredito, notas, createdBy]
     );
     const despacho = despachoRows[0];
 
@@ -83,8 +82,8 @@ async function crear({ cliente_id, items, notas, createdBy }) {
       );
 
       await client.query(
-        'UPDATE productos SET stock_actual = stock_actual - $1 WHERE id = $2',
-        [item.cantidad, item.producto_id]
+        'UPDATE productos SET stock_actual = stock_actual - $1 WHERE id = $2 AND propietario_id = $3',
+        [item.cantidad, item.producto_id, propietarioId]
       );
     }
 
@@ -99,15 +98,15 @@ async function crear({ cliente_id, items, notas, createdBy }) {
   }
 }
 
-async function anular(id, { motivo, anuladoPor }) {
+async function anular(propietarioId, id, { motivo, anuladoPor }) {
   const client = await db.getClient();
 
   try {
     await client.query('BEGIN');
 
     const { rows: despachoRows } = await client.query(
-      'SELECT * FROM despachos WHERE id = $1 FOR UPDATE',
-      [id]
+      'SELECT * FROM despachos WHERE id = $1 AND propietario_id = $2 FOR UPDATE',
+      [id, propietarioId]
     );
     const despacho = despachoRows[0];
 
@@ -125,17 +124,17 @@ async function anular(id, { motivo, anuladoPor }) {
 
     for (const item of items) {
       await client.query(
-        'UPDATE productos SET stock_actual = stock_actual + $1 WHERE id = $2',
-        [item.cantidad, item.producto_id]
+        'UPDATE productos SET stock_actual = stock_actual + $1 WHERE id = $2 AND propietario_id = $3',
+        [item.cantidad, item.producto_id, propietarioId]
       );
     }
 
     const { rows: actualizadoRows } = await client.query(
       `UPDATE despachos
        SET estado = 'anulado', anulado_por = $1, anulado_at = now(), motivo_anulacion = $2
-       WHERE id = $3
+       WHERE id = $3 AND propietario_id = $4
        RETURNING *`,
-      [anuladoPor, motivo, id]
+      [anuladoPor, motivo, id, propietarioId]
     );
 
     await client.query('COMMIT');
@@ -148,13 +147,13 @@ async function anular(id, { motivo, anuladoPor }) {
   }
 }
 
-async function obtenerPorId(id) {
+async function obtenerPorId(propietarioId, id) {
   const { rows: despachoRows } = await db.query(
     `SELECT d.*, c.nombre AS cliente_nombre
      FROM despachos d
      JOIN clientes c ON c.id = d.cliente_id
-     WHERE d.id = $1`,
-    [id]
+     WHERE d.id = $1 AND d.propietario_id = $2`,
+    [id, propietarioId]
   );
   const despacho = despachoRows[0];
   if (!despacho) return null;
@@ -170,9 +169,9 @@ async function obtenerPorId(id) {
   return { ...despacho, items };
 }
 
-async function listar({ cliente_id, estado, desde, hasta }) {
-  const condiciones = [];
-  const valores = [];
+async function listar({ propietarioId, cliente_id, estado, desde, hasta }) {
+  const condiciones = ['d.propietario_id = $1'];
+  const valores = [propietarioId];
 
   if (cliente_id) {
     valores.push(cliente_id);
@@ -191,13 +190,11 @@ async function listar({ cliente_id, estado, desde, hasta }) {
     condiciones.push(`d.fecha <= $${valores.length}`);
   }
 
-  const where = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
-
   const { rows } = await db.query(
     `SELECT d.*, c.nombre AS cliente_nombre
      FROM despachos d
      JOIN clientes c ON c.id = d.cliente_id
-     ${where}
+     WHERE ${condiciones.join(' AND ')}
      ORDER BY d.fecha DESC`,
     valores
   );

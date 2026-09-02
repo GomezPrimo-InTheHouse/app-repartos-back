@@ -1,23 +1,30 @@
 // src/services/dashboard.service.js
 const db = require('../config/db');
 
-async function obtenerResumen() {
-  const { rows } = await db.query(`
-    SELECT
+async function obtenerResumen(propietarioId) {
+  const { rows } = await db.query(
+    `SELECT
       COALESCE((
         SELECT SUM((di.precio_unitario - di.costo_unitario) * di.cantidad)
         FROM despacho_items di
         JOIN despachos d ON d.id = di.despacho_id
-        WHERE d.estado = 'entregado'
+        WHERE d.estado = 'entregado' AND d.propietario_id = $1
       ), 0) AS total_ganado,
-      COALESCE((SELECT SUM(costo_total) FROM compras_stock), 0) AS total_invertido,
-      COALESCE((SELECT SUM(total) FROM despachos WHERE estado = 'entregado'), 0)
-        - COALESCE((SELECT SUM(monto) FROM pagos), 0) AS total_me_deben,
+      COALESCE((
+        SELECT SUM(costo_total) FROM compras_stock WHERE propietario_id = $1
+      ), 0) AS total_invertido,
+      COALESCE((
+        SELECT SUM(total) FROM despachos WHERE estado = 'entregado' AND propietario_id = $1
+      ), 0) - COALESCE((
+        SELECT SUM(monto) FROM pagos WHERE propietario_id = $1
+      ), 0) AS total_me_deben,
       COALESCE((
         SELECT SUM(monto) FROM pagos
-        WHERE date_trunc('month', fecha) = date_trunc('month', CURRENT_DATE)
-      ), 0) AS total_pagado_mes
-  `);
+        WHERE propietario_id = $1
+        AND date_trunc('month', fecha) = date_trunc('month', CURRENT_DATE)
+      ), 0) AS total_pagado_mes`,
+    [propietarioId]
+  );
 
   const row = rows[0];
   return {
@@ -28,9 +35,9 @@ async function obtenerResumen() {
   };
 }
 
-async function productosMasVendidos({ limit = 10, desde, hasta }) {
-  const condiciones = [`d.estado = 'entregado'`];
-  const valores = [];
+async function productosMasVendidos({ propietarioId, limit = 10, desde, hasta }) {
+  const condiciones = [`d.estado = 'entregado'`, `d.propietario_id = $1`];
+  const valores = [propietarioId];
 
   if (desde) {
     valores.push(desde);
@@ -58,7 +65,7 @@ async function productosMasVendidos({ limit = 10, desde, hasta }) {
   return rows;
 }
 
-async function clientesComprometidos({ limit = 10 }) {
+async function clientesComprometidos({ propietarioId, limit = 10 }) {
   const { rows } = await db.query(
     `SELECT
        c.id, c.nombre, c.dias_credito, c.limite_credito,
@@ -66,17 +73,19 @@ async function clientesComprometidos({ limit = 10 }) {
      FROM clientes c
      LEFT JOIN (
        SELECT cliente_id, SUM(total) AS total_despachado
-       FROM despachos WHERE estado = 'entregado'
+       FROM despachos WHERE estado = 'entregado' AND propietario_id = $1
        GROUP BY cliente_id
      ) d ON d.cliente_id = c.id
      LEFT JOIN (
        SELECT cliente_id, SUM(monto) AS total_pagado
-       FROM pagos GROUP BY cliente_id
+       FROM pagos WHERE propietario_id = $1
+       GROUP BY cliente_id
      ) pg ON pg.cliente_id = c.id
-     WHERE (COALESCE(d.total_despachado, 0) - COALESCE(pg.total_pagado, 0)) > 0
+     WHERE c.propietario_id = $1
+       AND (COALESCE(d.total_despachado, 0) - COALESCE(pg.total_pagado, 0)) > 0
      ORDER BY saldo DESC
-     LIMIT $1`,
-    [limit]
+     LIMIT $2`,
+    [propietarioId, limit]
   );
 
   return rows;

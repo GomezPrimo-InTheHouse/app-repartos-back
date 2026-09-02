@@ -5,6 +5,7 @@ const productosService = require('../services/productos.service');
 const listar = asyncHandler(async (req, res) => {
   const { busqueda, activo, stockBajo } = req.query;
   const productos = await productosService.listar({
+    propietarioId: req.user.propietarioId,
     busqueda,
     activo: activo === undefined ? undefined : activo === 'true',
     stockBajo: stockBajo === 'true',
@@ -13,7 +14,7 @@ const listar = asyncHandler(async (req, res) => {
 });
 
 const obtener = asyncHandler(async (req, res) => {
-  const producto = await productosService.obtenerPorId(req.params.id);
+  const producto = await productosService.obtenerPorId(req.user.propietarioId, req.params.id);
   if (!producto) {
     return res.status(404).json({ error: 'Producto no encontrado' });
   }
@@ -26,12 +27,16 @@ const crear = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'nombre y precio_venta son requeridos' });
   }
 
-  const producto = await productosService.crear({ ...req.body, createdBy: req.user.id });
+  const producto = await productosService.crear({
+    ...req.body,
+    propietarioId: req.user.propietarioId,
+    createdBy: req.user.id,
+  });
   res.status(201).json({ producto });
 });
 
 const actualizar = asyncHandler(async (req, res) => {
-  const producto = await productosService.actualizar(req.params.id, req.body);
+  const producto = await productosService.actualizar(req.user.propietarioId, req.params.id, req.body);
   if (!producto) {
     return res.status(404).json({ error: 'Producto no encontrado' });
   }
@@ -39,7 +44,7 @@ const actualizar = asyncHandler(async (req, res) => {
 });
 
 const eliminar = asyncHandler(async (req, res) => {
-  const resultado = await productosService.eliminar(req.params.id);
+  const resultado = await productosService.eliminar(req.user.propietarioId, req.params.id);
   if (!resultado) {
     return res.status(404).json({ error: 'Producto no encontrado' });
   }

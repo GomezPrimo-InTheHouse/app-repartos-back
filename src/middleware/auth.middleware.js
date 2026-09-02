@@ -11,6 +11,11 @@ const requireAuth = asyncHandler(async (req, res, next) => {
   }
 
   const user = await authService.verifyToken(token);
+
+  if (!user.propietarioId) {
+    return res.status(403).json({ error: 'Usuario sin negocio asignado' });
+  }
+
   req.user = user;
   next();
 });

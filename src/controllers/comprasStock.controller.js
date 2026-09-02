@@ -9,13 +9,22 @@ const registrar = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'producto_id, cantidad y costo_unitario son requeridos' });
   }
 
-  const resultado = await comprasStockService.registrar({ ...req.body, createdBy: req.user.id });
+  const resultado = await comprasStockService.registrar({
+    ...req.body,
+    propietarioId: req.user.propietarioId,
+    createdBy: req.user.id,
+  });
   res.status(201).json(resultado);
 });
 
 const listar = asyncHandler(async (req, res) => {
   const { producto_id, desde, hasta } = req.query;
-  const compras = await comprasStockService.listar({ producto_id, desde, hasta });
+  const compras = await comprasStockService.listar({
+    propietarioId: req.user.propietarioId,
+    producto_id,
+    desde,
+    hasta,
+  });
   res.json({ compras });
 });
 
