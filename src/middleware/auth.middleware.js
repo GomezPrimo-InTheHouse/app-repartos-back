@@ -12,7 +12,8 @@ const requireAuth = asyncHandler(async (req, res, next) => {
 
   const user = await authService.verifyToken(token);
 
-  if (!user.propietarioId) {
+  // El super_admin no pertenece a ningún propietario, es el único caso permitido sin uno
+  if (user.rol !== 'super_admin' && !user.propietarioId) {
     return res.status(403).json({ error: 'Usuario sin negocio asignado' });
   }
 
@@ -20,4 +21,18 @@ const requireAuth = asyncHandler(async (req, res, next) => {
   next();
 });
 
-module.exports = { requireAuth };
+function requireSuperAdmin(req, res, next) {
+  if (req.user?.rol !== 'super_admin') {
+    return res.status(403).json({ error: 'Requiere permisos de super administrador' });
+  }
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (req.user?.rol !== 'admin') {
+    return res.status(403).json({ error: 'Requiere permisos de administrador' });
+  }
+  next();
+}
+
+module.exports = { requireAuth, requireSuperAdmin, requireAdmin };
