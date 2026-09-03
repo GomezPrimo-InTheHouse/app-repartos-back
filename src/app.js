@@ -10,7 +10,13 @@ const { notFoundHandler, errorHandler } = require('./middleware/error.middleware
 const app = express();
 
 app.use(cors({
-  origin: env.frontendUrl,
+  origin(origin, callback) {
+    // Permite requests sin origin (ej: Postman, curl) y los orígenes de la lista
+    if (!origin || env.frontendUrls.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`Origen no permitido por CORS: ${origin}`));
+  },
   credentials: true,
 }));
 

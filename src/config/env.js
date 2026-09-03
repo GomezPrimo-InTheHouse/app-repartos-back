@@ -1,3 +1,4 @@
+
 // src/config/env.js
 require('dotenv').config();
 
@@ -16,6 +17,11 @@ if (missing.length > 0) {
   );
 }
 
+const frontendUrls = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map((url) => url.trim())
+  .filter(Boolean);
+
 const env = {
   port: Number(process.env.PORT) || 4000,
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -25,8 +31,12 @@ const env = {
 
   databaseUrl: process.env.DATABASE_URL,
 
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+  frontendUrls,
+
   cookieName: process.env.COOKIE_NAME || 'app_repartos_session',
+
+  // Opcional: solo se valida en el momento de usarse (importación de clientes por IA)
+  geminiApiKey: process.env.GEMINI_API_KEY || null,
 
   isProduction: process.env.NODE_ENV === 'production',
 };

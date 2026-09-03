@@ -1,7 +1,10 @@
+
 // src/routes/clientes.routes.js
 const { Router } = require('express');
 const clientesController = require('../controllers/clientes.controller');
+const clientesImportController = require('../controllers/clientesImport.controller');
 const { requireAuth } = require('../middleware/auth.middleware');
+const { upload } = require('../middleware/upload.middleware');
 
 const router = Router();
 
@@ -12,5 +15,7 @@ router.get('/:id', clientesController.obtener);
 router.post('/', clientesController.crear);
 router.put('/:id', clientesController.actualizar);
 router.delete('/:id', clientesController.eliminar);
+
+router.post('/importar-excel', upload.single('archivo'), clientesImportController.importar);
 
 module.exports = router;
