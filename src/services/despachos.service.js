@@ -5,7 +5,7 @@ async function obtenerSaldoCliente(executor, propietarioId, clienteId) {
   const { rows } = await executor.query(
     `SELECT
        COALESCE((SELECT SUM(total) FROM despachos WHERE cliente_id = $1 AND propietario_id = $2 AND estado = 'entregado'), 0)
-       - COALESCE((SELECT SUM(monto) FROM pagos WHERE cliente_id = $1 AND propietario_id = $2), 0) AS saldo`,
+       - COALESCE((SELECT SUM(monto) FROM pagos WHERE cliente_id = $1 AND propietario_id = $2 AND estado = 'activo'), 0) AS saldo`,
     [clienteId, propietarioId]
   );
   return Number(rows[0].saldo);
@@ -88,16 +88,13 @@ async function crear({ propietarioId, cliente_id, items, notas, createdBy }) {
         [despacho.id, item.producto_id, item.cantidad, item.precio_unitario, item.costo_unitario]
       );
 
-      // Movimiento de envase automático, solo si el producto maneja envase retornable
       if (item.maneja_envase) {
         const delta = Number(item.cantidad) - item.envases_devueltos;
-        if (delta !== 0) {
-          await client.query(
-            `INSERT INTO movimientos_envase (propietario_id, cliente_id, producto_id, despacho_id, delta, tipo, created_by)
-             VALUES ($1, $2, $3, $4, $5, 'despacho', $6)`,
-            [propietarioId, cliente_id, item.producto_id, despacho.id, delta, createdBy]
-          );
-        }
+        await client.query(
+          `INSERT INTO movimientos_envase (propietario_id, cliente_id, producto_id, despacho_id, delta, tipo, created_by)
+           VALUES ($1, $2, $3, $4, $5, 'despacho', $6)`,
+          [propietarioId, cliente_id, item.producto_id, despacho.id, delta, createdBy]
+        );
       }
     }
 
@@ -131,9 +128,8 @@ async function anular(propietarioId, id, { motivo, anuladoPor }) {
       throw Object.assign(new Error('El despacho ya está anulado'), { status: 400 });
     }
 
-    // Revertir movimientos de envase asociados a este despacho (movimiento inverso, no se borra nada)
     const { rows: movimientosEnvase } = await client.query(
-      `SELECT * FROM movimientos_envase WHERE despacho_id = $1 AND tipo = 'despacho'`,
+      `SELECT * FROM movimientos_envase WHERE despacho_id = $1 AND tipo = 'despacho' AND motivo IS NULL`,
       [id]
     );
 
@@ -182,13 +178,62 @@ async function obtenerPorId(propietarioId, id) {
   const despacho = despachoRows[0];
   if (!despacho) return null;
 
-  const { rows: items } = await db.query(
-    `SELECT di.*, p.nombre AS producto_nombre
+  const { rows: itemsRaw } = await db.query(
+    `SELECT di.*, p.nombre AS producto_nombre, p.maneja_envase
      FROM despacho_items di
      JOIN productos p ON p.id = di.producto_id
      WHERE di.despacho_id = $1`,
     [id]
   );
+
+  const items = [];
+
+  for (const item of itemsRaw) {
+    if (!item.maneja_envase) {
+      items.push({
+        ...item,
+        envases_devueltos: null,
+        envases_saldo_anterior: null,
+        envases_saldo_posterior: null,
+      });
+      continue;
+    }
+
+    const { rows: movRows } = await db.query(
+      `SELECT * FROM movimientos_envase
+       WHERE despacho_id = $1 AND producto_id = $2 AND tipo = 'despacho' AND motivo IS NULL
+       LIMIT 1`,
+      [id, item.producto_id]
+    );
+    const movimiento = movRows[0];
+
+    if (!movimiento) {
+      items.push({
+        ...item,
+        envases_devueltos: null,
+        envases_saldo_anterior: null,
+        envases_saldo_posterior: null,
+      });
+      continue;
+    }
+
+    const { rows: saldoAnteriorRows } = await db.query(
+      `SELECT COALESCE(SUM(delta), 0) AS saldo
+       FROM movimientos_envase
+       WHERE cliente_id = $1 AND producto_id = $2 AND secuencia < $3`,
+      [despacho.cliente_id, item.producto_id, movimiento.secuencia]
+    );
+    const saldoAnterior = Number(saldoAnteriorRows[0].saldo);
+    const saldoPosterior = saldoAnterior + Number(movimiento.delta);
+    const envasesDevueltos = Number(item.cantidad) - Number(movimiento.delta);
+
+    items.push({
+      ...item,
+      envases_devueltos: envasesDevueltos,
+      envases_saldo_anterior: saldoAnterior,
+      envases_saldo_posterior: saldoPosterior,
+    });
+  }
 
   return { ...despacho, items };
 }

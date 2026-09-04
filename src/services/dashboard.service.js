@@ -16,11 +16,11 @@ async function obtenerResumen(propietarioId) {
       COALESCE((
         SELECT SUM(total) FROM despachos WHERE estado = 'entregado' AND propietario_id = $1
       ), 0) - COALESCE((
-        SELECT SUM(monto) FROM pagos WHERE propietario_id = $1
+        SELECT SUM(monto) FROM pagos WHERE propietario_id = $1 AND estado = 'activo'
       ), 0) AS total_me_deben,
       COALESCE((
         SELECT SUM(monto) FROM pagos
-        WHERE propietario_id = $1
+        WHERE propietario_id = $1 AND estado = 'activo'
         AND date_trunc('month', fecha) = date_trunc('month', CURRENT_DATE)
       ), 0) AS total_pagado_mes`,
     [propietarioId]
@@ -78,7 +78,7 @@ async function clientesComprometidos({ propietarioId, limit = 10 }) {
      ) d ON d.cliente_id = c.id
      LEFT JOIN (
        SELECT cliente_id, SUM(monto) AS total_pagado
-       FROM pagos WHERE propietario_id = $1
+       FROM pagos WHERE propietario_id = $1 AND estado = 'activo'
        GROUP BY cliente_id
      ) pg ON pg.cliente_id = c.id
      WHERE c.propietario_id = $1

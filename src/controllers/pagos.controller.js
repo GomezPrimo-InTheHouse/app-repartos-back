@@ -5,7 +5,7 @@ const pagosService = require('../services/pagos.service');
 const registrar = asyncHandler(async (req, res) => {
   const { cliente_id, monto } = req.body;
 
-  if (!cliente_id || !monto) {
+  if (!cliente_id || monto === undefined || monto === null) {
     return res.status(400).json({ error: 'cliente_id y monto son requeridos' });
   }
 
@@ -17,15 +17,29 @@ const registrar = asyncHandler(async (req, res) => {
   res.status(201).json({ pago });
 });
 
-const listar = asyncHandler(async (req, res) => {
-  const { cliente_id, desde, hasta } = req.query;
-  const pagos = await pagosService.listar({
-    propietarioId: req.user.propietarioId,
-    cliente_id,
-    desde,
-    hasta,
+const anular = asyncHandler(async (req, res) => {
+  const { motivo } = req.body;
+  const pago = await pagosService.anular(req.user.propietarioId, req.params.id, {
+    motivo,
+    anuladoPor: req.user.id,
   });
-  res.json({ pagos });
+  res.json({ pago });
 });
 
-module.exports = { registrar, listar };
+const listar = asyncHandler(async (req, res) => {
+  const { cliente_id, estado, desde, hasta, limit, offset } = req.query;
+
+  const resultado = await pagosService.listar({
+    propietarioId: req.user.propietarioId,
+    cliente_id,
+    estado,
+    desde,
+    hasta,
+    limit: limit !== undefined ? Number(limit) : undefined,
+    offset: offset !== undefined ? Number(offset) : undefined,
+  });
+
+  res.json(resultado); // { pagos, total }
+});
+
+module.exports = { registrar, anular, listar };

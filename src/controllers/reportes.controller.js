@@ -1,7 +1,12 @@
 // src/controllers/reportes.controller.js
 const { asyncHandler } = require('../utils/asyncHandler');
 const reportesService = require('../services/reportes.service');
-const { crearDocumento, escribirEstadoCuentaCliente, escribirResumenGeneral } = require('../utils/pdf');
+const {
+  crearDocumento,
+  escribirEstadoCuentaCliente,
+  escribirResumenGeneral,
+  escribirComprobantePago,
+} = require('../utils/pdf');
 
 const estadoCuentaCliente = asyncHandler(async (req, res) => {
   const { desde, hasta } = req.query;
@@ -43,4 +48,22 @@ const resumenGeneral = asyncHandler(async (req, res) => {
   doc.end();
 });
 
-module.exports = { estadoCuentaCliente, resumenGeneral };
+const comprobantePago = asyncHandler(async (req, res) => {
+  const datos = await reportesService.obtenerComprobantePago({
+    propietarioId: req.user.propietarioId,
+    pagoId: req.params.id,
+  });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="comprobante_pago_${datos.pago.cliente_nombre.replace(/\s+/g, '_')}.pdf"`
+  );
+
+  const doc = crearDocumento();
+  doc.pipe(res);
+  escribirComprobantePago(doc, datos);
+  doc.end();
+});
+
+module.exports = { estadoCuentaCliente, resumenGeneral, comprobantePago };

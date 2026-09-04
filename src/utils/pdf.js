@@ -87,4 +87,40 @@ function escribirResumenGeneral(doc, { totalPagado, totalDespachado, cantidadDes
   });
 }
 
-module.exports = { crearDocumento, escribirEstadoCuentaCliente, escribirResumenGeneral };
+function escribirComprobantePago(doc, { pago, saldoActual, envases }) {
+  doc.fontSize(18).text('Comprobante de Pago', { align: 'center' });
+  doc.moveDown();
+
+  doc.fontSize(11).text(`Cliente: ${pago.cliente_nombre}`);
+  if (pago.cliente_telefono) doc.text(`Teléfono: ${pago.cliente_telefono}`);
+  doc.moveDown();
+
+  doc.fontSize(13).text('Datos del pago', { underline: true });
+  doc.fontSize(10).text(`Fecha: ${formatoFecha(pago.fecha)}`);
+  doc.text(`Monto recibido: ${formatoMoneda(pago.monto)}`);
+  doc.text(`Método: ${pago.metodo}`);
+  if (pago.notas) doc.text(`Notas: ${pago.notas}`);
+  doc.moveDown();
+
+  doc.font('Helvetica-Bold').text(`Saldo actual de la cuenta: ${formatoMoneda(saldoActual)}`);
+  doc.font('Helvetica');
+  doc.moveDown();
+
+  doc.fontSize(13).text('Envases retornables que adeuda', { underline: true });
+  doc.moveDown(0.3);
+
+  if (envases.length === 0) {
+    doc.fontSize(10).text('No adeuda envases retornables.');
+  } else {
+    envases.forEach((e) => {
+      doc.fontSize(10).text(`${e.producto_nombre}: ${e.saldo} unidad(es)`);
+    });
+  }
+}
+
+module.exports = {
+  crearDocumento,
+  escribirEstadoCuentaCliente,
+  escribirResumenGeneral,
+  escribirComprobantePago,
+};

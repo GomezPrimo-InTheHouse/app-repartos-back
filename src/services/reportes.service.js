@@ -1,5 +1,6 @@
 // src/services/reportes.service.js
 const db = require('../config/db');
+const envasesService = require('./envases.service');
 
 async function obtenerEstadoCuentaCliente({ propietarioId, clienteId, desde, hasta }) {
   const { rows: clienteRows } = await db.query(
@@ -35,7 +36,7 @@ async function obtenerEstadoCuentaCliente({ propietarioId, clienteId, desde, has
     valDespachos
   );
 
-  const condPagos = [`cliente_id = $1`, `propietario_id = $2`];
+  const condPagos = [`cliente_id = $1`, `propietario_id = $2`, `estado = 'activo'`];
   const valPagos = [clienteId, propietarioId];
   if (desde) { valPagos.push(desde); condPagos.push(`fecha >= $${valPagos.length}`); }
   if (hasta) { valPagos.push(hasta); condPagos.push(`fecha <= $${valPagos.length}`); }
@@ -51,7 +52,7 @@ async function obtenerEstadoCuentaCliente({ propietarioId, clienteId, desde, has
   const { rows: saldoRows } = await db.query(
     `SELECT
        COALESCE((SELECT SUM(total) FROM despachos WHERE cliente_id = $1 AND propietario_id = $2 AND estado = 'entregado'), 0)
-       - COALESCE((SELECT SUM(monto) FROM pagos WHERE cliente_id = $1 AND propietario_id = $2), 0) AS saldo`,
+       - COALESCE((SELECT SUM(monto) FROM pagos WHERE cliente_id = $1 AND propietario_id = $2 AND estado = 'activo'), 0) AS saldo`,
     [clienteId, propietarioId]
   );
 
@@ -66,7 +67,7 @@ async function obtenerEstadoCuentaCliente({ propietarioId, clienteId, desde, has
 }
 
 async function obtenerResumenGeneral({ propietarioId, desde, hasta }) {
-  const condPagos = ['propietario_id = $1'];
+  const condPagos = ['propietario_id = $1', `estado = 'activo'`];
   const valPagos = [propietarioId];
   if (desde) { valPagos.push(desde); condPagos.push(`fecha >= $${valPagos.length}`); }
   if (hasta) { valPagos.push(hasta); condPagos.push(`fecha <= $${valPagos.length}`); }
@@ -114,4 +115,30 @@ async function obtenerResumenGeneral({ propietarioId, desde, hasta }) {
   };
 }
 
-module.exports = { obtenerEstadoCuentaCliente, obtenerResumenGeneral };
+async function obtenerComprobantePago({ propietarioId, pagoId }) {
+  const { rows: pagoRows } = await db.query(
+    `SELECT p.*, c.id AS cliente_id, c.nombre AS cliente_nombre, c.telefono AS cliente_telefono
+     FROM pagos p
+     JOIN clientes c ON c.id = p.cliente_id
+     WHERE p.id = $1 AND p.propietario_id = $2`,
+    [pagoId, propietarioId]
+  );
+  const pago = pagoRows[0];
+  if (!pago) {
+    throw Object.assign(new Error('Pago no encontrado'), { status: 404 });
+  }
+
+  const { rows: saldoRows } = await db.query(
+    `SELECT
+       COALESCE((SELECT SUM(total) FROM despachos WHERE cliente_id = $1 AND propietario_id = $2 AND estado = 'entregado'), 0)
+       - COALESCE((SELECT SUM(monto) FROM pagos WHERE cliente_id = $1 AND propietario_id = $2 AND estado = 'activo'), 0) AS saldo`,
+    [pago.cliente_id, propietarioId]
+  );
+  const saldoActual = Number(saldoRows[0].saldo);
+
+  const envases = await envasesService.obtenerSaldos(propietarioId, pago.cliente_id);
+
+  return { pago, saldoActual, envases };
+}
+
+module.exports = { obtenerEstadoCuentaCliente, obtenerResumenGeneral, obtenerComprobantePago };

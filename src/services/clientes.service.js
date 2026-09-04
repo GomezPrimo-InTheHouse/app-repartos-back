@@ -1,29 +1,59 @@
 // src/services/clientes.service.js
 const db = require('../config/db');
 
-async function listar({ propietarioId, busqueda, activo }) {
-  const condiciones = ['propietario_id = $1'];
+async function listar({ propietarioId, busqueda, activo, ordenarPor, orden, soloDeudores, saldoMinimo }) {
+  const condiciones = ['c.propietario_id = $1'];
   const valores = [propietarioId];
 
   if (busqueda) {
     valores.push(`%${busqueda}%`);
-    condiciones.push(`nombre ILIKE $${valores.length}`);
+    condiciones.push(`c.nombre ILIKE $${valores.length}`);
   }
 
   if (activo !== undefined) {
     valores.push(activo);
-    condiciones.push(`activo = $${valores.length}`);
+    condiciones.push(`c.activo = $${valores.length}`);
   }
 
+  const saldoExpr = `COALESCE(d.total_despachado, 0) - COALESCE(pg.total_pagado, 0)`;
+
+  const condicionesHaving = [];
+  if (soloDeudores) {
+    condicionesHaving.push(`${saldoExpr} > 0`);
+  }
+  if (saldoMinimo !== undefined) {
+    valores.push(saldoMinimo);
+    condicionesHaving.push(`${saldoExpr} >= $${valores.length}`);
+  }
+
+  const columnaOrden = ordenarPor === 'saldo' ? 'saldo' : 'c.nombre';
+  const direccionOrden = orden === 'asc' ? 'ASC' : ordenarPor === 'saldo' ? 'DESC' : 'ASC';
+
   const { rows } = await db.query(
-    `SELECT id, nombre, telefono, direccion, dias_credito, limite_credito, foto_url, activo, created_at
-     FROM clientes
+    `SELECT
+       c.id, c.nombre, c.telefono, c.direccion, c.dias_credito, c.limite_credito,
+       c.foto_url, c.activo, c.created_at,
+       ${saldoExpr} AS saldo
+     FROM clientes c
+     LEFT JOIN (
+       SELECT cliente_id, SUM(total) AS total_despachado
+       FROM despachos
+       WHERE estado = 'entregado' AND propietario_id = $1
+       GROUP BY cliente_id
+     ) d ON d.cliente_id = c.id
+     LEFT JOIN (
+       SELECT cliente_id, SUM(monto) AS total_pagado
+       FROM pagos
+       WHERE propietario_id = $1 AND estado = 'activo'
+       GROUP BY cliente_id
+     ) pg ON pg.cliente_id = c.id
      WHERE ${condiciones.join(' AND ')}
-     ORDER BY nombre ASC`,
+     ${condicionesHaving.length ? `HAVING ${condicionesHaving.join(' AND ')}` : ''}
+     ORDER BY ${columnaOrden} ${direccionOrden}`,
     valores
   );
 
-  return rows;
+  return rows.map((r) => ({ ...r, saldo: Number(r.saldo) }));
 }
 
 async function obtenerPorId(propietarioId, id) {

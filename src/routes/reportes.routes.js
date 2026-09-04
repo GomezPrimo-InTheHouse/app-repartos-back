@@ -9,5 +9,6 @@ router.use(requireAuth);
 
 router.get('/cliente/:id', reportesController.estadoCuentaCliente);
 router.get('/general', reportesController.resumenGeneral);
+router.get('/pago/:id', reportesController.comprobantePago);
 
 module.exports = router;

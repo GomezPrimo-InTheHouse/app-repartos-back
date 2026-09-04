@@ -9,5 +9,6 @@ router.use(requireAuth);
 
 router.get('/', pagosController.listar);
 router.post('/', pagosController.registrar);
+router.post('/:id/anular', pagosController.anular);
 
 module.exports = router;
