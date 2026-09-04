@@ -36,8 +36,12 @@ async function crear({ propietarioId, cliente_id, items, notas, createdBy }) {
     const itemsProcesados = [];
 
     for (const item of items) {
+      if (!(Number(item.cantidad) > 0)) {
+        throw Object.assign(new Error('La cantidad debe ser mayor a 0'), { status: 400 });
+      }
+
       const { rows: productoRows } = await client.query(
-        'SELECT * FROM productos WHERE id = $1 AND propietario_id = $2 FOR UPDATE',
+        'SELECT * FROM productos WHERE id = $1 AND propietario_id = $2',
         [item.producto_id, propietarioId]
       );
       const producto = productoRows[0];
@@ -45,9 +49,10 @@ async function crear({ propietarioId, cliente_id, items, notas, createdBy }) {
       if (!producto) {
         throw Object.assign(new Error(`Producto ${item.producto_id} no encontrado`), { status: 404 });
       }
-      if (Number(producto.stock_actual) < Number(item.cantidad)) {
+
+      if (!producto.activo) {
         throw Object.assign(
-          new Error(`Stock insuficiente para "${producto.nombre}" (disponible: ${producto.stock_actual})`),
+          new Error(`El producto "${producto.nombre}" está inactivo y no puede despacharse`),
           { status: 400 }
         );
       }
@@ -60,6 +65,8 @@ async function crear({ propietarioId, cliente_id, items, notas, createdBy }) {
         cantidad: item.cantidad,
         precio_unitario: producto.precio_venta,
         costo_unitario: producto.costo_unitario,
+        maneja_envase: producto.maneja_envase,
+        envases_devueltos: Number(item.envases_devueltos) || 0,
       });
     }
 
@@ -81,10 +88,17 @@ async function crear({ propietarioId, cliente_id, items, notas, createdBy }) {
         [despacho.id, item.producto_id, item.cantidad, item.precio_unitario, item.costo_unitario]
       );
 
-      await client.query(
-        'UPDATE productos SET stock_actual = stock_actual - $1 WHERE id = $2 AND propietario_id = $3',
-        [item.cantidad, item.producto_id, propietarioId]
-      );
+      // Movimiento de envase automático, solo si el producto maneja envase retornable
+      if (item.maneja_envase) {
+        const delta = Number(item.cantidad) - item.envases_devueltos;
+        if (delta !== 0) {
+          await client.query(
+            `INSERT INTO movimientos_envase (propietario_id, cliente_id, producto_id, despacho_id, delta, tipo, created_by)
+             VALUES ($1, $2, $3, $4, $5, 'despacho', $6)`,
+            [propietarioId, cliente_id, item.producto_id, despacho.id, delta, createdBy]
+          );
+        }
+      }
     }
 
     await client.query('COMMIT');
@@ -117,15 +131,25 @@ async function anular(propietarioId, id, { motivo, anuladoPor }) {
       throw Object.assign(new Error('El despacho ya está anulado'), { status: 400 });
     }
 
-    const { rows: items } = await client.query(
-      'SELECT * FROM despacho_items WHERE despacho_id = $1',
+    // Revertir movimientos de envase asociados a este despacho (movimiento inverso, no se borra nada)
+    const { rows: movimientosEnvase } = await client.query(
+      `SELECT * FROM movimientos_envase WHERE despacho_id = $1 AND tipo = 'despacho'`,
       [id]
     );
 
-    for (const item of items) {
+    for (const mov of movimientosEnvase) {
       await client.query(
-        'UPDATE productos SET stock_actual = stock_actual + $1 WHERE id = $2 AND propietario_id = $3',
-        [item.cantidad, item.producto_id, propietarioId]
+        `INSERT INTO movimientos_envase (propietario_id, cliente_id, producto_id, despacho_id, delta, tipo, motivo, created_by)
+         VALUES ($1, $2, $3, $4, $5, 'despacho', $6, $7)`,
+        [
+          propietarioId,
+          mov.cliente_id,
+          mov.producto_id,
+          id,
+          -mov.delta,
+          'Reversión automática por anulación del despacho',
+          anuladoPor,
+        ]
       );
     }
 
@@ -169,7 +193,7 @@ async function obtenerPorId(propietarioId, id) {
   return { ...despacho, items };
 }
 
-async function listar({ propietarioId, cliente_id, estado, desde, hasta }) {
+async function listar({ propietarioId, cliente_id, estado, desde, hasta, limit, offset }) {
   const condiciones = ['d.propietario_id = $1'];
   const valores = [propietarioId];
 
@@ -190,16 +214,35 @@ async function listar({ propietarioId, cliente_id, estado, desde, hasta }) {
     condiciones.push(`d.fecha <= $${valores.length}`);
   }
 
-  const { rows } = await db.query(
-    `SELECT d.*, c.nombre AS cliente_nombre
-     FROM despachos d
-     JOIN clientes c ON c.id = d.cliente_id
-     WHERE ${condiciones.join(' AND ')}
-     ORDER BY d.fecha DESC`,
+  const whereClause = condiciones.join(' AND ');
+
+  const { rows: countRows } = await db.query(
+    `SELECT COUNT(*) AS total FROM despachos d WHERE ${whereClause}`,
     valores
   );
+  const total = Number(countRows[0].total);
 
-  return rows;
+  let query = `
+    SELECT d.*, c.nombre AS cliente_nombre
+    FROM despachos d
+    JOIN clientes c ON c.id = d.cliente_id
+    WHERE ${whereClause}
+    ORDER BY d.fecha DESC`;
+
+  const valoresConPaginacion = [...valores];
+
+  if (limit !== undefined) {
+    valoresConPaginacion.push(limit);
+    query += ` LIMIT $${valoresConPaginacion.length}`;
+  }
+  if (offset !== undefined) {
+    valoresConPaginacion.push(offset);
+    query += ` OFFSET $${valoresConPaginacion.length}`;
+  }
+
+  const { rows } = await db.query(query, valoresConPaginacion);
+
+  return { despachos: rows, total };
 }
 
 module.exports = { crear, anular, obtenerPorId, listar, obtenerSaldoCliente };
