@@ -1,11 +1,11 @@
 // src/routes/productos.routes.js
 const { Router } = require('express');
 const productosController = require('../controllers/productos.controller');
-const { requireAuth } = require('../middleware/auth.middleware');
+const { requireAuth, requireModulo } = require('../middleware/auth.middleware');
 
 const router = Router();
 
-router.use(requireAuth);
+router.use(requireAuth, requireModulo('productos'));
 
 router.get('/', productosController.listar);
 router.get('/:id', productosController.obtener);

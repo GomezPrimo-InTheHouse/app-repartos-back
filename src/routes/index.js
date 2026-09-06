@@ -14,5 +14,9 @@ router.use('/despachos', require('./despachos.routes'));
 router.use('/pagos', require('./pagos.routes'));
 router.use('/compras-stock', require('./comprasStock.routes'));
 router.use('/dashboard', require('./dashboard.routes'));
+router.use('/reportes', require('./reportes.routes'));
+router.use('/admin', require('./admin.routes'));
+router.use('/empleados', require('./empleados.routes'));
+router.use('/repartos', require('./repartos.routes'));
 
 module.exports = router;

@@ -3,12 +3,12 @@ const { Router } = require('express');
 const clientesController = require('../controllers/clientes.controller');
 const clientesImportController = require('../controllers/clientesImport.controller');
 const envasesController = require('../controllers/envases.controller');
-const { requireAuth } = require('../middleware/auth.middleware');
+const { requireAuth, requireModulo } = require('../middleware/auth.middleware');
 const { upload } = require('../middleware/upload.middleware');
 
 const router = Router();
 
-router.use(requireAuth);
+router.use(requireAuth, requireModulo('clientes'));
 
 router.get('/', clientesController.listar);
 router.get('/:id', clientesController.obtener);

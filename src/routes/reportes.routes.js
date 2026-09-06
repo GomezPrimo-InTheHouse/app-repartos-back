@@ -1,11 +1,11 @@
 // src/routes/reportes.routes.js
 const { Router } = require('express');
 const reportesController = require('../controllers/reportes.controller');
-const { requireAuth } = require('../middleware/auth.middleware');
+const { requireAuth, requireModulo } = require('../middleware/auth.middleware');
 
 const router = Router();
 
-router.use(requireAuth);
+router.use(requireAuth, requireModulo('reportes'));
 
 router.get('/cliente/:id', reportesController.estadoCuentaCliente);
 router.get('/general', reportesController.resumenGeneral);

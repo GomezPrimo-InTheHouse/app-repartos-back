@@ -8,6 +8,17 @@ const {
   escribirComprobantePago,
 } = require('../utils/pdf');
 
+// Arma un Content-Disposition seguro para nombres con tildes/ñ (RFC 5987):
+// incluye un fallback ASCII (sin tildes) + la versión UTF-8 codificada.
+function contentDispositionPdf(nombreBase) {
+  const sinTildes = nombreBase
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '_');
+  const codificado = encodeURIComponent(nombreBase.replace(/\s+/g, '_'));
+  return `attachment; filename="${sinTildes}.pdf"; filename*=UTF-8''${codificado}.pdf`;
+}
+
 const estadoCuentaCliente = asyncHandler(async (req, res) => {
   const { desde, hasta } = req.query;
 
@@ -19,10 +30,7 @@ const estadoCuentaCliente = asyncHandler(async (req, res) => {
   });
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="estado_cuenta_${datos.cliente.nombre.replace(/\s+/g, '_')}.pdf"`
-  );
+  res.setHeader('Content-Disposition', contentDispositionPdf(`estado_cuenta_${datos.cliente.nombre}`));
 
   const doc = crearDocumento();
   doc.pipe(res);
@@ -55,10 +63,7 @@ const comprobantePago = asyncHandler(async (req, res) => {
   });
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="comprobante_pago_${datos.pago.cliente_nombre.replace(/\s+/g, '_')}.pdf"`
-  );
+  res.setHeader('Content-Disposition', contentDispositionPdf(`comprobante_pago_${datos.pago.cliente_nombre}`));
 
   const doc = crearDocumento();
   doc.pipe(res);

@@ -12,7 +12,6 @@ const requireAuth = asyncHandler(async (req, res, next) => {
 
   const user = await authService.verifyToken(token);
 
-  // El super_admin no pertenece a ningún propietario, es el único caso permitido sin uno
   if (user.rol !== 'super_admin' && !user.propietarioId) {
     return res.status(403).json({ error: 'Usuario sin negocio asignado' });
   }
@@ -35,4 +34,21 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-module.exports = { requireAuth, requireSuperAdmin, requireAdmin };
+// admin y super_admin siempre pasan. vendedor solo si tiene el módulo en su array de permisos.
+function requireModulo(nombreModulo) {
+  return (req, res, next) => {
+    const { rol, permisos } = req.user || {};
+
+    if (rol === 'admin' || rol === 'super_admin') {
+      return next();
+    }
+
+    if (Array.isArray(permisos) && permisos.includes(nombreModulo)) {
+      return next();
+    }
+
+    return res.status(403).json({ error: `No tenés acceso al módulo "${nombreModulo}"` });
+  };
+}
+
+module.exports = { requireAuth, requireSuperAdmin, requireAdmin, requireModulo };

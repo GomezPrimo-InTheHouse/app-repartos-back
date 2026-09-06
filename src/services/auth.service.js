@@ -4,7 +4,7 @@ const db = require('../config/db');
 
 async function obtenerPerfil(userId) {
   const { rows } = await db.query(
-    'SELECT id, nombre_completo, rol, propietario_id, activo FROM profiles WHERE id = $1',
+    'SELECT id, nombre_completo, rol, propietario_id, activo, permisos FROM profiles WHERE id = $1',
     [userId]
   );
   return rows[0] || null;
@@ -37,6 +37,7 @@ async function login(email, password) {
       nombreCompleto: perfil.nombre_completo,
       rol: perfil.rol,
       propietarioId: perfil.propietario_id,
+      permisos: perfil.permisos || [],
     },
   };
 }
@@ -64,6 +65,7 @@ async function verifyToken(accessToken) {
     nombreCompleto: perfil.nombre_completo,
     rol: perfil.rol,
     propietarioId: perfil.propietario_id,
+    permisos: perfil.permisos || [],
   };
 }
 
