@@ -1,7 +1,7 @@
 // src/services/clientes.service.js
 const db = require('../config/db');
 
-async function listar({ propietarioId, busqueda, activo, ordenarPor, orden, soloDeudores, saldoMinimo }) {
+async function listar({ propietarioId, busqueda, activo, barrio, ordenarPor, orden, soloDeudores, saldoMinimo }) {
   const condiciones = ['c.propietario_id = $1'];
   const valores = [propietarioId];
 
@@ -13,6 +13,11 @@ async function listar({ propietarioId, busqueda, activo, ordenarPor, orden, solo
   if (activo !== undefined) {
     valores.push(activo);
     condiciones.push(`c.activo = $${valores.length}`);
+  }
+
+  if (barrio) {
+    valores.push(`%${barrio}%`);
+    condiciones.push(`c.barrio ILIKE $${valores.length}`);
   }
 
   const saldoExpr = `COALESCE(d.total_despachado, 0) - COALESCE(pg.total_pagado, 0)`;
@@ -31,8 +36,8 @@ async function listar({ propietarioId, busqueda, activo, ordenarPor, orden, solo
 
   const { rows } = await db.query(
     `SELECT
-       c.id, c.nombre, c.telefono, c.direccion, c.dias_credito, c.limite_credito,
-       c.foto_url, c.activo, c.created_at,
+       c.id, c.nombre, c.telefono, c.direccion, c.barrio, c.localidad,
+       c.dias_credito, c.limite_credito, c.foto_url, c.activo, c.created_at,
        ${saldoExpr} AS saldo
      FROM clientes c
      LEFT JOIN (
@@ -64,18 +69,18 @@ async function obtenerPorId(propietarioId, id) {
   return rows[0] || null;
 }
 
-async function crear({ propietarioId, nombre, telefono, direccion, dias_credito, limite_credito, foto_url, notas, createdBy }) {
+async function crear({ propietarioId, nombre, telefono, direccion, barrio, localidad, dias_credito, limite_credito, foto_url, notas, createdBy }) {
   const { rows } = await db.query(
-    `INSERT INTO clientes (propietario_id, nombre, telefono, direccion, dias_credito, limite_credito, foto_url, notas, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO clientes (propietario_id, nombre, telefono, direccion, barrio, localidad, dias_credito, limite_credito, foto_url, notas, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING *`,
-    [propietarioId, nombre, telefono, direccion, dias_credito ?? 30, limite_credito ?? 0, foto_url, notas, createdBy]
+    [propietarioId, nombre, telefono, direccion, barrio, localidad, dias_credito ?? 30, limite_credito ?? 0, foto_url, notas, createdBy]
   );
   return rows[0];
 }
 
 async function actualizar(propietarioId, id, campos) {
-  const permitidos = ['nombre', 'telefono', 'direccion', 'dias_credito', 'limite_credito', 'foto_url', 'notas', 'activo'];
+  const permitidos = ['nombre', 'telefono', 'direccion', 'barrio', 'localidad', 'dias_credito', 'limite_credito', 'foto_url', 'notas', 'activo'];
   const sets = [];
   const valores = [];
 
