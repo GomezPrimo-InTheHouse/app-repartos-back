@@ -1,4 +1,3 @@
-
 // src/config/env.js
 require('dotenv').config();
 
@@ -17,7 +16,7 @@ if (missing.length > 0) {
   );
 }
 
-const frontendUrls = (process.env.FRONTEND_URL || 'http://localhost:5173' || 'https://app-logistica-nine.vercel.app/')
+const frontendUrls = (process.env.FRONTEND_URL || 'http://localhost:5173')
   .split(',')
   .map((url) => url.trim())
   .filter(Boolean);
@@ -35,8 +34,9 @@ const env = {
 
   cookieName: process.env.COOKIE_NAME || 'app_repartos_session',
 
-  // Opcional: solo se valida en el momento de usarse (importación de clientes por IA)
+  // Opcionales: se validan recién en el momento de usarse (importación de clientes por IA)
   geminiApiKey: process.env.GEMINI_API_KEY || null,
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY || null,
 
   isProduction: process.env.NODE_ENV === 'production',
 };

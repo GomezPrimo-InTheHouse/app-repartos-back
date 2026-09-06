@@ -1,4 +1,3 @@
-
 // src/services/clientesImport.service.js
 const XLSX = require('xlsx');
 const db = require('../config/db');
@@ -14,18 +13,14 @@ function leerExcel(buffer) {
   return XLSX.utils.sheet_to_json(hoja, { defval: null });
 }
 
-async function interpretarConIA(filasCrudas) {
-  if (!env.geminiApiKey) {
-    throw Object.assign(new Error('GEMINI_API_KEY no configurada en el servidor'), { status: 500 });
-  }
-
-  const prompt = `
+function construirPrompt(filasCrudas) {
+  return `
 Sos un asistente que normaliza datos de clientes de un negocio de reparto/distribución a crédito.
 Te paso filas crudas extraídas de un Excel, con columnas y encabezados que pueden ser inconsistentes,
 en español o con abreviaturas.
 
-Devolvé EXCLUSIVAMENTE un array JSON válido (sin texto adicional, sin explicaciones, sin bloques de
-código markdown), donde cada elemento tenga EXACTAMENTE estas claves:
+Respondé EXCLUSIVAMENTE con un array JSON válido (sin texto adicional, sin explicaciones, sin bloques
+de código markdown, sin la palabra "json" al principio), donde cada elemento tenga EXACTAMENTE estas claves:
 
 {
   "nombre": string o null,
@@ -45,20 +40,26 @@ Reglas:
 Filas:
 ${JSON.stringify(filasCrudas)}
 `.trim();
+}
 
-  const response = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-goog-api-key': env.geminiApiKey,
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-      }),
-    }
-  );
+async function interpretarConIA(filasCrudas) {
+  if (!env.anthropicApiKey) {
+    throw Object.assign(new Error('ANTHROPIC_API_KEY no configurada en el servidor'), { status: 500 });
+  }
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': env.anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-5',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: construirPrompt(filasCrudas) }],
+    }),
+  });
 
   if (!response.ok) {
     const errorTexto = await response.text();
@@ -66,7 +67,7 @@ ${JSON.stringify(filasCrudas)}
   }
 
   const data = await response.json();
-  const textoRespuesta = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const textoRespuesta = data.content?.[0]?.text || '';
   const limpio = textoRespuesta.replace(/```json|```/g, '').trim();
 
   try {
