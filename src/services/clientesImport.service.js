@@ -11,53 +11,48 @@ function leerExcel(buffer) {
   }
   const hoja = workbook.Sheets[primeraHoja];
 
-  // header: 1 => devuelve arrays por fila (posición de columna), no objetos por nombre de columna.
-  // Necesario acá porque este tipo de planilla suele tener títulos de sección y encabezados
-  // repetidos a mitad de la hoja, lo que rompe el mapeo automático por nombre de columna.
   const filas = XLSX.utils.sheet_to_json(hoja, { header: 1, defval: null });
-
-  // Filtra filas completamente vacías antes de mandarlas a la IA (ahorra tokens)
   return filas.filter((fila) => fila.some((celda) => celda !== null && String(celda).trim() !== ''));
+}
+
+// Saca filas basura ANTES de gastar tokens de IA: encabezados repetidos, totales/resúmenes,
+// y filas título de sección (una sola celda con contenido).
+function filtrarFilasUtiles(filas) {
+  return filas.filter((fila) => {
+    const celdasConTexto = fila
+      .filter((c) => c !== null && String(c).trim() !== '')
+      .map((c) => String(c).trim().toUpperCase());
+
+    if (celdasConTexto.length <= 1) return false; // fila título de sección
+    if (celdasConTexto.includes('CLIENTE')) return false; // encabezado repetido
+    if (celdasConTexto[0].includes('TOTAL') || celdasConTexto[0].includes('RESUMEN')) return false;
+
+    return true;
+  });
 }
 
 function construirPrompt(filasCrudas) {
   return `
-Sos un asistente que extrae datos de CLIENTES ÚNICOS a partir de una planilla de control de repartos
-de una sodería. La planilla NO es una lista limpia de clientes: es un registro diario de reparto,
-con estas características que tenés que tener en cuenta:
+Sos un asistente que extrae datos de CLIENTES ÚNICOS a partir de filas de una planilla de reparto
+de una sodería (ya se sacaron encabezados repetidos, títulos de sección y totales, así que estas
+filas deberían ser todas de clientes reales, pero puede quedar alguna excepción).
 
-- Está organizada en SECCIONES POR DÍA (ej: filas con solo el texto "JUEVES 13/08" o "VIERNES 14/08"
-  a modo de título de sección). Esas filas NO son clientes, ignoralas.
-- El encabezado de columnas (algo como CLIENTE, DIRECCIÓN, N°, BARRIO, CIUDAD, SODA, AGUA X 12,
-  AGUA X 20, $ COBRADO, OBSERVACIONES) puede aparecer REPETIDO varias veces a lo largo de la planilla,
-  una vez por cada sección de día. Esas filas de encabezado NO son clientes, ignoralas.
-- Al final de cada sección o de la planilla puede haber filas de TOTALES o RESÚMENES
-  (ej: "TOTAL COBRADO JUEVES 13/08", "RESUMEN GENERAL", "Total Efectivo (Registrado)").
-  Esas filas NO son clientes, ignoralas.
-- El MISMO CLIENTE puede aparecer en más de una sección de día (una fila por cada día que se le
-  repartió). Vos tenés que devolver cada cliente **una sola vez** en tu respuesta final — si aparece
-  varias veces, quedate con los datos más completos que encuentres entre todas sus apariciones
-  (ej: si en una fila falta el barrio pero en otra aparición del mismo cliente sí está, usá el que
-  tiene el dato).
-- Las columnas de cantidades (SODA, AGUA X 12, AGUA X 20) y de cobro ($ COBRADO) y observaciones
-  del día NO te interesan para esta tarea — ignoralas completamente, no las incluyas en tu respuesta.
+El MISMO CLIENTE puede aparecer más de una vez (reparto de distintos días). Devolvé cada cliente
+UNA SOLA VEZ, combinando los datos más completos que encuentres entre sus apariciones.
 
-De cada fila de cliente real, extraé SOLO estos datos:
-- nombre: el nombre del cliente (columna CLIENTE)
-- direccion: combiná la columna de dirección con el número de puerta si están en columnas separadas
-  (ej: "MEXICO" + "318" → "MEXICO 318"). Si no hay número, usá solo la calle.
-- barrio: la columna BARRIO tal cual, o null si no está
-- localidad: la columna CIUDAD, pero NORMALIZANDO variantes obvias de la misma ciudad a un solo
-  valor consistente (ej: "V. MARIA", "V MARIA", "V.MARIA" son todas la misma ciudad, elegí una
-  forma consistente y usala siempre, como "Villa María"). Si no hay dato, null.
+De cada fila, extraé SOLO:
+- nombre: nombre del cliente
+- direccion: calle + número combinados si están en columnas separadas
+- barrio: tal cual aparece, o null
+- localidad: la ciudad, normalizando variantes obvias a una sola forma (ej: "V. MARIA" / "V MARIA" / "V.MARIA" → "Villa María"). null si no hay dato.
 
-Respondé EXCLUSIVAMENTE con un array JSON válido, empezando directo con "[" y terminando con "]".
-Nada de texto antes ni después, nada de markdown. Cada elemento debe tener EXACTAMENTE estas claves:
-{ "nombre": string, "direccion": string o null, "barrio": string o null, "localidad": string o null }
+Ignorá completamente cualquier columna de cantidades, montos cobrados u observaciones del día.
+Si una fila no parece ser un cliente real (ej. quedó algún total o resumen sin filtrar), no la incluyas.
 
-No incluyas ningún elemento sin nombre identificable. No repitas el mismo cliente dos veces.
+Respondé EXCLUSIVAMENTE con un array JSON, empezando con "[" y terminando con "]", sin texto
+adicional ni markdown. Cada elemento: { "nombre": string, "direccion": string|null, "barrio": string|null, "localidad": string|null }
 
-Filas crudas de la planilla (array de arrays, cada sub-array es una fila, en el orden original):
+Filas (array de arrays):
 ${JSON.stringify(filasCrudas)}
 `.trim();
 }
@@ -73,8 +68,7 @@ function extraerJsonDeTexto(texto) {
     );
   }
 
-  const posibleJson = texto.slice(inicio, fin + 1);
-  return JSON.parse(posibleJson);
+  return JSON.parse(texto.slice(inicio, fin + 1));
 }
 
 async function interpretarConIA(filasCrudas) {
@@ -91,7 +85,7 @@ async function interpretarConIA(filasCrudas) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-5',
-      max_tokens: 8192,
+      max_tokens: 16000,
       messages: [{ role: 'user', content: construirPrompt(filasCrudas) }],
     }),
   });
@@ -132,16 +126,21 @@ async function importar({ propietarioId, buffer, createdBy }) {
   if (filasCrudas.length === 0) {
     throw Object.assign(new Error('El archivo no tiene filas de datos'), { status: 400 });
   }
-  if (filasCrudas.length > 200) {
+
+  const filasUtiles = filtrarFilasUtiles(filasCrudas);
+
+  if (filasUtiles.length === 0) {
+    throw Object.assign(new Error('No se encontraron filas de clientes después de filtrar encabezados/totales'), { status: 400 });
+  }
+  if (filasUtiles.length > 300) {
     throw Object.assign(
-      new Error('Máximo 200 filas por archivo — dividí el Excel en partes más chicas'),
+      new Error('Máximo 300 filas útiles por archivo — dividí el Excel en partes más chicas'),
       { status: 400 }
     );
   }
 
-  const clientesExtraidos = await interpretarConIA(filasCrudas);
+  const clientesExtraidos = await interpretarConIA(filasUtiles);
 
-  // Clientes ya existentes en la base (para no duplicar contra lo que ya estaba cargado)
   const { rows: existentes } = await db.query(
     'SELECT nombre FROM clientes WHERE propietario_id = $1',
     [propietarioId]
@@ -166,7 +165,6 @@ async function importar({ propietarioId, buffer, createdBy }) {
       omitidos.push({ fila: cliente, motivo: 'Ya existe un cliente con ese nombre en tu base' });
       continue;
     }
-
     if (vistosEnEsteArchivo.has(clave)) {
       omitidos.push({ fila: cliente, motivo: 'Duplicado dentro del mismo archivo' });
       continue;
@@ -186,7 +184,12 @@ async function importar({ propietarioId, buffer, createdBy }) {
     }
   }
 
-  return { totalFilasLeidas: filasCrudas.length, creados, omitidos };
+  return {
+    totalFilasLeidas: filasCrudas.length,
+    totalFilasUtiles: filasUtiles.length,
+    creados,
+    omitidos,
+  };
 }
 
 module.exports = { importar };
