@@ -10,8 +10,19 @@ async function obtenerPerfil(userId) {
   return rows[0] || null;
 }
 
+function normalizarEmail(email) {
+  return String(email).trim().toLowerCase();
+}
+
+function normalizarPassword(password) {
+  return String(password).trim();
+}
+
 async function login(email, password) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: normalizarEmail(email),
+    password: normalizarPassword(password),
+  });
 
   if (error) {
     const err = new Error('Credenciales inválidas');
