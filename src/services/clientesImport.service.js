@@ -10,36 +10,71 @@ function leerExcel(buffer) {
     throw Object.assign(new Error('El archivo no tiene hojas'), { status: 400 });
   }
   const hoja = workbook.Sheets[primeraHoja];
-  return XLSX.utils.sheet_to_json(hoja, { defval: null });
+
+  // header: 1 => devuelve arrays por fila (posición de columna), no objetos por nombre de columna.
+  // Necesario acá porque este tipo de planilla suele tener títulos de sección y encabezados
+  // repetidos a mitad de la hoja, lo que rompe el mapeo automático por nombre de columna.
+  const filas = XLSX.utils.sheet_to_json(hoja, { header: 1, defval: null });
+
+  // Filtra filas completamente vacías antes de mandarlas a la IA (ahorra tokens)
+  return filas.filter((fila) => fila.some((celda) => celda !== null && String(celda).trim() !== ''));
 }
 
 function construirPrompt(filasCrudas) {
   return `
-Sos un asistente que normaliza datos de clientes de un negocio de reparto/distribución a crédito.
-Te paso filas crudas extraídas de un Excel, con columnas y encabezados que pueden ser inconsistentes,
-en español o con abreviaturas.
+Sos un asistente que extrae datos de CLIENTES ÚNICOS a partir de una planilla de control de repartos
+de una sodería. La planilla NO es una lista limpia de clientes: es un registro diario de reparto,
+con estas características que tenés que tener en cuenta:
 
-Respondé EXCLUSIVAMENTE con un array JSON válido (sin texto adicional, sin explicaciones, sin bloques
-de código markdown, sin la palabra "json" al principio), donde cada elemento tenga EXACTAMENTE estas claves:
+- Está organizada en SECCIONES POR DÍA (ej: filas con solo el texto "JUEVES 13/08" o "VIERNES 14/08"
+  a modo de título de sección). Esas filas NO son clientes, ignoralas.
+- El encabezado de columnas (algo como CLIENTE, DIRECCIÓN, N°, BARRIO, CIUDAD, SODA, AGUA X 12,
+  AGUA X 20, $ COBRADO, OBSERVACIONES) puede aparecer REPETIDO varias veces a lo largo de la planilla,
+  una vez por cada sección de día. Esas filas de encabezado NO son clientes, ignoralas.
+- Al final de cada sección o de la planilla puede haber filas de TOTALES o RESÚMENES
+  (ej: "TOTAL COBRADO JUEVES 13/08", "RESUMEN GENERAL", "Total Efectivo (Registrado)").
+  Esas filas NO son clientes, ignoralas.
+- El MISMO CLIENTE puede aparecer en más de una sección de día (una fila por cada día que se le
+  repartió). Vos tenés que devolver cada cliente **una sola vez** en tu respuesta final — si aparece
+  varias veces, quedate con los datos más completos que encuentres entre todas sus apariciones
+  (ej: si en una fila falta el barrio pero en otra aparición del mismo cliente sí está, usá el que
+  tiene el dato).
+- Las columnas de cantidades (SODA, AGUA X 12, AGUA X 20) y de cobro ($ COBRADO) y observaciones
+  del día NO te interesan para esta tarea — ignoralas completamente, no las incluyas en tu respuesta.
 
-{
-  "nombre": string o null,
-  "telefono": string o null,
-  "direccion": string o null,
-  "dias_credito": number o null,
-  "limite_credito": number o null,
-  "notas": string o null
-}
+De cada fila de cliente real, extraé SOLO estos datos:
+- nombre: el nombre del cliente (columna CLIENTE)
+- direccion: combiná la columna de dirección con el número de puerta si están en columnas separadas
+  (ej: "MEXICO" + "318" → "MEXICO 318"). Si no hay número, usá solo la calle.
+- barrio: la columna BARRIO tal cual, o null si no está
+- localidad: la columna CIUDAD, pero NORMALIZANDO variantes obvias de la misma ciudad a un solo
+  valor consistente (ej: "V. MARIA", "V MARIA", "V.MARIA" son todas la misma ciudad, elegí una
+  forma consistente y usala siempre, como "Villa María"). Si no hay dato, null.
 
-Reglas:
-- Si no podés determinar el nombre del cliente en una fila, poné "nombre": null.
-- "dias_credito" y "limite_credito" deben ser números puros (sin texto, sin símbolos de moneda, sin comas de miles). Si no hay dato claro, poné null.
-- No inventes datos que no estén presentes en la fila original.
-- Mantené el mismo orden de las filas de entrada (una fila de entrada = un elemento de salida).
+Respondé EXCLUSIVAMENTE con un array JSON válido, empezando directo con "[" y terminando con "]".
+Nada de texto antes ni después, nada de markdown. Cada elemento debe tener EXACTAMENTE estas claves:
+{ "nombre": string, "direccion": string o null, "barrio": string o null, "localidad": string o null }
 
-Filas:
+No incluyas ningún elemento sin nombre identificable. No repitas el mismo cliente dos veces.
+
+Filas crudas de la planilla (array de arrays, cada sub-array es una fila, en el orden original):
 ${JSON.stringify(filasCrudas)}
 `.trim();
+}
+
+function extraerJsonDeTexto(texto) {
+  const inicio = texto.indexOf('[');
+  const fin = texto.lastIndexOf(']');
+
+  if (inicio === -1 || fin === -1 || fin < inicio) {
+    throw Object.assign(
+      new Error('La IA no devolvió un JSON válido, reintentá o revisá el archivo'),
+      { status: 502 }
+    );
+  }
+
+  const posibleJson = texto.slice(inicio, fin + 1);
+  return JSON.parse(posibleJson);
 }
 
 async function interpretarConIA(filasCrudas) {
@@ -56,7 +91,7 @@ async function interpretarConIA(filasCrudas) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-5',
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages: [{ role: 'user', content: construirPrompt(filasCrudas) }],
     }),
   });
@@ -67,14 +102,28 @@ async function interpretarConIA(filasCrudas) {
   }
 
   const data = await response.json();
+
+  if (data.stop_reason === 'max_tokens') {
+    throw Object.assign(
+      new Error('La respuesta de la IA se cortó por exceder el límite de tokens. Probá con un archivo con menos filas.'),
+      { status: 502 }
+    );
+  }
+
   const textoRespuesta = data.content?.[0]?.text || '';
-  const limpio = textoRespuesta.replace(/```json|```/g, '').trim();
 
   try {
-    return JSON.parse(limpio);
+    return extraerJsonDeTexto(textoRespuesta);
   } catch (err) {
-    throw Object.assign(new Error('La IA no devolvió un JSON válido, reintentá o revisá el archivo'), { status: 502 });
+    if (!env.isProduction) {
+      console.error('Respuesta cruda de la IA (no parseable):', textoRespuesta);
+    }
+    throw err;
   }
+}
+
+function normalizarNombre(nombre) {
+  return String(nombre).trim().toUpperCase().replace(/\s+/g, ' ');
 }
 
 async function importar({ propietarioId, buffer, createdBy }) {
@@ -90,38 +139,50 @@ async function importar({ propietarioId, buffer, createdBy }) {
     );
   }
 
-  const filasNormalizadas = await interpretarConIA(filasCrudas);
+  const clientesExtraidos = await interpretarConIA(filasCrudas);
 
+  // Clientes ya existentes en la base (para no duplicar contra lo que ya estaba cargado)
+  const { rows: existentes } = await db.query(
+    'SELECT nombre FROM clientes WHERE propietario_id = $1',
+    [propietarioId]
+  );
+  const nombresExistentes = new Set(existentes.map((c) => normalizarNombre(c.nombre)));
+
+  const vistosEnEsteArchivo = new Set();
   const creados = [];
   const omitidos = [];
 
-  for (const fila of filasNormalizadas) {
-    const nombre = fila?.nombre ? String(fila.nombre).trim() : '';
+  for (const cliente of clientesExtraidos) {
+    const nombre = cliente?.nombre ? String(cliente.nombre).trim() : '';
 
     if (!nombre) {
-      omitidos.push({ fila, motivo: 'Sin nombre identificable' });
+      omitidos.push({ fila: cliente, motivo: 'Sin nombre identificable' });
       continue;
     }
 
+    const clave = normalizarNombre(nombre);
+
+    if (nombresExistentes.has(clave)) {
+      omitidos.push({ fila: cliente, motivo: 'Ya existe un cliente con ese nombre en tu base' });
+      continue;
+    }
+
+    if (vistosEnEsteArchivo.has(clave)) {
+      omitidos.push({ fila: cliente, motivo: 'Duplicado dentro del mismo archivo' });
+      continue;
+    }
+    vistosEnEsteArchivo.add(clave);
+
     try {
       const { rows } = await db.query(
-        `INSERT INTO clientes (propietario_id, nombre, telefono, direccion, dias_credito, limite_credito, notas, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO clientes (propietario_id, nombre, direccion, barrio, localidad, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, nombre`,
-        [
-          propietarioId,
-          nombre,
-          fila.telefono || null,
-          fila.direccion || null,
-          fila.dias_credito ?? null,
-          fila.limite_credito ?? null,
-          fila.notas || null,
-          createdBy,
-        ]
+        [propietarioId, nombre, cliente.direccion || null, cliente.barrio || null, cliente.localidad || null, createdBy]
       );
       creados.push(rows[0]);
     } catch (err) {
-      omitidos.push({ fila, motivo: `Error al guardar: ${err.message}` });
+      omitidos.push({ fila: cliente, motivo: `Error al guardar: ${err.message}` });
     }
   }
 
