@@ -17,7 +17,7 @@ if (missing.length > 0) {
   );
 }
 
-const frontendUrls = (process.env.FRONTEND_URL || 'http://localhost:5173')
+const frontendUrls = (process.env.FRONTEND_URL || 'http://localhost:5173' || 'https://app-logistica-nine.vercel.app/')
   .split(',')
   .map((url) => url.trim())
   .filter(Boolean);
