@@ -1,4 +1,3 @@
-
 // src/controllers/repartosListas.controller.js
 const { asyncHandler } = require('../utils/asyncHandler');
 const service = require('../services/repartosListas.service');
@@ -61,16 +60,6 @@ const agregarItem = asyncHandler(async (req, res) => {
   res.status(201).json({ id });
 });
 
-const editarItem = asyncHandler(async (req, res) => {
-  const { productos } = req.body;
-  if (!Array.isArray(productos)) {
-    return res.status(400).json({ error: 'productos debe ser un array' });
-  }
-
-  await service.editarItemProductos(req.user.propietarioId, req.params.id, req.params.itemId, productos);
-  res.json({ ok: true });
-});
-
 const eliminarItem = asyncHandler(async (req, res) => {
   const resultado = await service.eliminarItem(req.user.propietarioId, req.params.id, req.params.itemId);
   if (!resultado) {
@@ -79,4 +68,4 @@ const eliminarItem = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { listar, obtener, crear, actualizar, eliminar, agregarItem, editarItem, eliminarItem };
+module.exports = { listar, obtener, crear, actualizar, eliminar, agregarItem, eliminarItem };

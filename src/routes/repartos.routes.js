@@ -1,4 +1,3 @@
-
 // src/routes/repartos.routes.js
 const { Router } = require('express');
 const listasController = require('../controllers/repartosListas.controller');
@@ -15,7 +14,6 @@ router.post('/listas', listasController.crear);
 router.put('/listas/:id', listasController.actualizar);
 router.delete('/listas/:id', listasController.eliminar);
 router.post('/listas/:id/items', listasController.agregarItem);
-router.put('/listas/:id/items/:itemId', listasController.editarItem);
 router.delete('/listas/:id/items/:itemId', listasController.eliminarItem);
 
 router.get('/hoy', ejecucionesController.hoy);

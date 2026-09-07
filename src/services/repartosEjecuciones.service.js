@@ -1,4 +1,3 @@
-
 // src/services/repartosEjecuciones.service.js
 const db = require('../config/db');
 
@@ -9,6 +8,8 @@ function diaSemanaDeFecha(fechaStr) {
   return DIAS[d.getDay()];
 }
 
+// productos y visitado se calculan enteramente contra despachos/despacho_items reales del
+// mismo cliente y misma fecha — ya no hay estimado/real, solo "lo que realmente se despachó".
 async function obtenerEjecucionDetalle(propietarioId, id) {
   const { rows: ejecRows } = await db.query(
     `SELECT re.*, lr.nombre AS lista_nombre, lr.tipo AS lista_tipo
@@ -21,23 +22,40 @@ async function obtenerEjecucionDetalle(propietarioId, id) {
   if (!ejecucion) return null;
 
   const { rows: items } = await db.query(
-    `SELECT rei.id, rei.cliente_id, c.nombre AS cliente_nombre, rei.orden, rei.visitado,
-       COALESCE(
-         json_agg(
-           json_build_object(
-             'producto_id', reip.producto_id,
-             'producto_nombre', p.nombre,
-             'cantidad_estimada', reip.cantidad_estimada,
-             'cantidad_real', reip.cantidad_real
-           ) ORDER BY p.nombre
-         ) FILTER (WHERE reip.id IS NOT NULL), '[]'
-       ) AS productos
+    `SELECT
+       rei.id, rei.cliente_id, c.nombre AS cliente_nombre, rei.orden,
+       (
+         rei.visitado
+         OR EXISTS (
+           SELECT 1 FROM despachos d2
+           WHERE d2.cliente_id = rei.cliente_id
+             AND d2.propietario_id = re.propietario_id
+             AND d2.estado = 'entregado'
+             AND d2.fecha::date = re.fecha
+         )
+       ) AS visitado,
+       COALESCE(prod.productos, '[]') AS productos
      FROM reparto_ejecutado_items rei
+     JOIN repartos_ejecutados re ON re.id = rei.reparto_ejecutado_id
      JOIN clientes c ON c.id = rei.cliente_id
-     LEFT JOIN reparto_ejecutado_item_productos reip ON reip.reparto_ejecutado_item_id = rei.id
-     LEFT JOIN productos p ON p.id = reip.producto_id
+     LEFT JOIN LATERAL (
+       SELECT json_agg(
+                json_build_object('producto_id', x.producto_id, 'producto_nombre', x.producto_nombre, 'cantidad', x.cantidad)
+                ORDER BY x.producto_nombre
+              ) AS productos
+       FROM (
+         SELECT di.producto_id, p.nombre AS producto_nombre, SUM(di.cantidad) AS cantidad
+         FROM despacho_items di
+         JOIN despachos d3 ON d3.id = di.despacho_id
+         JOIN productos p ON p.id = di.producto_id
+         WHERE d3.cliente_id = rei.cliente_id
+           AND d3.propietario_id = re.propietario_id
+           AND d3.estado = 'entregado'
+           AND d3.fecha::date = re.fecha
+         GROUP BY di.producto_id, p.nombre
+       ) x
+     ) prod ON true
      WHERE rei.reparto_ejecutado_id = $1
-     GROUP BY rei.id, c.nombre
      ORDER BY rei.orden, c.nombre`,
     [id]
   );
@@ -45,6 +63,7 @@ async function obtenerEjecucionDetalle(propietarioId, id) {
   return { ...ejecucion, items };
 }
 
+// Ya no copia productos estimados: la ejecución solo necesita saber qué clientes visitar.
 async function generarEjecucion({ propietarioId, lista, fecha }) {
   const client = await db.getClient();
   try {
@@ -61,7 +80,6 @@ async function generarEjecucion({ propietarioId, lista, fecha }) {
     let ejecucion = ejecRows[0];
 
     if (!ejecucion) {
-      // Otra request concurrente ya la generó justo antes — la recuperamos, no duplicamos nada
       const { rows } = await client.query(
         'SELECT * FROM repartos_ejecutados WHERE lista_reparto_id = $1 AND fecha = $2',
         [lista.id, fecha]
@@ -77,25 +95,11 @@ async function generarEjecucion({ propietarioId, lista, fecha }) {
     );
 
     for (const item of items) {
-      const { rows: nuevoItemRows } = await client.query(
+      await client.query(
         `INSERT INTO reparto_ejecutado_items (reparto_ejecutado_id, cliente_id, orden)
-         VALUES ($1, $2, $3) RETURNING id`,
+         VALUES ($1, $2, $3)`,
         [ejecucion.id, item.cliente_id, item.orden]
       );
-      const nuevoItemId = nuevoItemRows[0].id;
-
-      const { rows: productos } = await client.query(
-        'SELECT * FROM lista_reparto_item_productos WHERE lista_reparto_item_id = $1',
-        [item.id]
-      );
-
-      for (const prod of productos) {
-        await client.query(
-          `INSERT INTO reparto_ejecutado_item_productos (reparto_ejecutado_item_id, producto_id, cantidad_estimada)
-           VALUES ($1, $2, $3)`,
-          [nuevoItemId, prod.producto_id, prod.cantidad_estimada]
-        );
-      }
     }
 
     await client.query('COMMIT');
@@ -166,31 +170,8 @@ async function listarEjecuciones({ propietarioId, desde, hasta, lista_reparto_id
   return rows;
 }
 
-async function obtenerItemEjecucion(itemId) {
-  const { rows } = await db.query(
-    `SELECT rei.id, rei.cliente_id, c.nombre AS cliente_nombre, rei.visitado,
-       COALESCE(
-         json_agg(
-           json_build_object(
-             'producto_id', reip.producto_id,
-             'producto_nombre', p.nombre,
-             'cantidad_estimada', reip.cantidad_estimada,
-             'cantidad_real', reip.cantidad_real
-           ) ORDER BY p.nombre
-         ) FILTER (WHERE reip.id IS NOT NULL), '[]'
-       ) AS productos
-     FROM reparto_ejecutado_items rei
-     JOIN clientes c ON c.id = rei.cliente_id
-     LEFT JOIN reparto_ejecutado_item_productos reip ON reip.reparto_ejecutado_item_id = rei.id
-     LEFT JOIN productos p ON p.id = reip.producto_id
-     WHERE rei.id = $1
-     GROUP BY rei.id, c.nombre`,
-    [itemId]
-  );
-  return rows[0] || null;
-}
-
-async function actualizarItemEjecucion(propietarioId, ejecucionId, itemId, { visitado, productos }) {
+// Solo maneja "visitado" manual. Ya no acepta/usa "productos" en absoluto.
+async function actualizarItemEjecucion(propietarioId, ejecucionId, itemId, { visitado }) {
   const { rows: check } = await db.query(
     `SELECT rei.id FROM reparto_ejecutado_items rei
      JOIN repartos_ejecutados re ON re.id = rei.reparto_ejecutado_id
@@ -205,18 +186,8 @@ async function actualizarItemEjecucion(propietarioId, ejecucionId, itemId, { vis
     await db.query('UPDATE reparto_ejecutado_items SET visitado = $1 WHERE id = $2', [visitado, itemId]);
   }
 
-  if (Array.isArray(productos)) {
-    for (const prod of productos) {
-      await db.query(
-        `UPDATE reparto_ejecutado_item_productos
-         SET cantidad_real = $1
-         WHERE reparto_ejecutado_item_id = $2 AND producto_id = $3`,
-        [prod.cantidad_real, itemId, prod.producto_id]
-      );
-    }
-  }
-
-  return obtenerItemEjecucion(itemId);
+  const detalle = await obtenerEjecucionDetalle(propietarioId, ejecucionId);
+  return detalle.items.find((i) => i.id === itemId);
 }
 
 async function completarEjecucion(propietarioId, id) {
