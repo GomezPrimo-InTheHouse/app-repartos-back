@@ -9,6 +9,11 @@ const { notFoundHandler, errorHandler } = require('./middleware/error.middleware
 
 const app = express();
 
+// Fuera de /api, antes de CORS: para servicios de uptime externos (evita que Render duerma el proceso)
+app.get('/healthz', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 app.use(cors({
   origin(origin, callback) {
     // Permite requests sin origin (ej: Postman, curl) y los orígenes de la lista
