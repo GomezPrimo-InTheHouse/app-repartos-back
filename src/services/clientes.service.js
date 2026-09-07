@@ -11,7 +11,7 @@ function construirQueryBase({ propietarioId, busqueda, activo, barrio, soloDeudo
 
   if (busqueda) {
     valores.push(`%${busqueda}%`);
-    condiciones.push(`c.nombre ILIKE $${valores.length}`);
+    condiciones.push(`(c.nombre ILIKE $${valores.length} OR c.direccion ILIKE $${valores.length})`);
   }
   if (activo !== undefined) {
     valores.push(activo);
