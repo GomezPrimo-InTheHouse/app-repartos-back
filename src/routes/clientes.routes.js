@@ -16,7 +16,8 @@ router.post('/', clientesController.crear);
 router.put('/:id', clientesController.actualizar);
 router.delete('/:id', clientesController.eliminar);
 
-router.post('/importar-excel', upload.single('archivo'), clientesImportController.importar);
+router.post('/importar-excel/previsualizar', upload.single('archivo'), clientesImportController.previsualizar);
+router.post('/importar-excel/confirmar', clientesImportController.confirmar);
 
 router.get('/:id/envases', envasesController.obtenerSaldos);
 router.post('/:id/envases/ajuste', envasesController.ajuste);

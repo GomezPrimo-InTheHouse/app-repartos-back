@@ -3,9 +3,9 @@ const { asyncHandler } = require('../utils/asyncHandler');
 const clientesService = require('../services/clientes.service');
 
 const listar = asyncHandler(async (req, res) => {
-  const { busqueda, activo, barrio, ordenarPor, orden, soloDeudores, saldoMinimo } = req.query;
+  const { busqueda, activo, barrio, ordenarPor, orden, soloDeudores, saldoMinimo, limit, offset } = req.query;
 
-  const clientes = await clientesService.listar({
+  const resultado = await clientesService.listar({
     propietarioId: req.user.propietarioId,
     busqueda,
     activo: activo === undefined ? undefined : activo === 'true',
@@ -14,9 +14,11 @@ const listar = asyncHandler(async (req, res) => {
     orden,
     soloDeudores: soloDeudores === 'true',
     saldoMinimo: saldoMinimo !== undefined ? Number(saldoMinimo) : undefined,
+    limit: limit !== undefined ? Number(limit) : undefined,
+    offset: offset !== undefined ? Number(offset) : undefined,
   });
 
-  res.json({ clientes });
+  res.json(resultado); // { clientes, total }
 });
 
 const obtener = asyncHandler(async (req, res) => {

@@ -5,7 +5,7 @@ function esErrorDniDuplicado(err) {
   return err.code === '23505' && err.constraint === 'idx_clientes_propietario_dni';
 }
 
-async function listar({ propietarioId, busqueda, activo, barrio, ordenarPor, orden, soloDeudores, saldoMinimo }) {
+function construirQueryBase({ propietarioId, busqueda, activo, barrio, soloDeudores, saldoMinimo }) {
   const condiciones = ['c.propietario_id = $1'];
   const valores = [propietarioId];
 
@@ -23,7 +23,6 @@ async function listar({ propietarioId, busqueda, activo, barrio, ordenarPor, ord
   }
 
   const saldoExpr = `COALESCE(d.total_despachado, 0) - COALESCE(pg.total_pagado, 0)`;
-
   const condicionesHaving = [];
   if (soloDeudores) {
     condicionesHaving.push(`${saldoExpr} > 0`);
@@ -33,34 +32,58 @@ async function listar({ propietarioId, busqueda, activo, barrio, ordenarPor, ord
     condicionesHaving.push(`${saldoExpr} >= $${valores.length}`);
   }
 
-  const columnaOrden = ordenarPor === 'saldo' ? 'saldo' : 'c.nombre';
-  const direccionOrden = orden === 'asc' ? 'ASC' : ordenarPor === 'saldo' ? 'DESC' : 'ASC';
+  const sql = `
+    SELECT
+      c.id, c.nombre, c.dni, c.telefono, c.direccion, c.barrio, c.localidad,
+      c.dias_credito, c.limite_credito, c.foto_url, c.activo, c.created_at,
+      ${saldoExpr} AS saldo
+    FROM clientes c
+    LEFT JOIN (
+      SELECT cliente_id, SUM(total) AS total_despachado
+      FROM despachos
+      WHERE estado = 'entregado' AND propietario_id = $1
+      GROUP BY cliente_id
+    ) d ON d.cliente_id = c.id
+    LEFT JOIN (
+      SELECT cliente_id, SUM(monto) AS total_pagado
+      FROM pagos
+      WHERE propietario_id = $1 AND estado = 'activo'
+      GROUP BY cliente_id
+    ) pg ON pg.cliente_id = c.id
+    WHERE ${condiciones.join(' AND ')}
+    ${condicionesHaving.length ? `HAVING ${condicionesHaving.join(' AND ')}` : ''}
+  `;
 
-  const { rows } = await db.query(
-    `SELECT
-       c.id, c.nombre, c.dni, c.telefono, c.direccion, c.barrio, c.localidad,
-       c.dias_credito, c.limite_credito, c.foto_url, c.activo, c.created_at,
-       ${saldoExpr} AS saldo
-     FROM clientes c
-     LEFT JOIN (
-       SELECT cliente_id, SUM(total) AS total_despachado
-       FROM despachos
-       WHERE estado = 'entregado' AND propietario_id = $1
-       GROUP BY cliente_id
-     ) d ON d.cliente_id = c.id
-     LEFT JOIN (
-       SELECT cliente_id, SUM(monto) AS total_pagado
-       FROM pagos
-       WHERE propietario_id = $1 AND estado = 'activo'
-       GROUP BY cliente_id
-     ) pg ON pg.cliente_id = c.id
-     WHERE ${condiciones.join(' AND ')}
-     ${condicionesHaving.length ? `HAVING ${condicionesHaving.join(' AND ')}` : ''}
-     ORDER BY ${columnaOrden} ${direccionOrden}`,
+  return { sql, valores };
+}
+
+async function listar({ propietarioId, busqueda, activo, barrio, ordenarPor, orden, soloDeudores, saldoMinimo, limit, offset }) {
+  const { sql, valores } = construirQueryBase({ propietarioId, busqueda, activo, barrio, soloDeudores, saldoMinimo });
+
+  const { rows: countRows } = await db.query(
+    `SELECT COUNT(*) AS total FROM (${sql}) AS sub`,
     valores
   );
+  const total = Number(countRows[0].total);
 
-  return rows.map((r) => ({ ...r, saldo: Number(r.saldo) }));
+  const columnaOrden = ordenarPor === 'saldo' ? 'saldo' : 'nombre';
+  const direccionOrden = orden === 'asc' ? 'ASC' : ordenarPor === 'saldo' ? 'DESC' : 'ASC';
+
+  let queryFinal = `SELECT * FROM (${sql}) AS sub ORDER BY ${columnaOrden} ${direccionOrden}`;
+  const valoresConPaginacion = [...valores];
+
+  if (limit !== undefined) {
+    valoresConPaginacion.push(limit);
+    queryFinal += ` LIMIT $${valoresConPaginacion.length}`;
+  }
+  if (offset !== undefined) {
+    valoresConPaginacion.push(offset);
+    queryFinal += ` OFFSET $${valoresConPaginacion.length}`;
+  }
+
+  const { rows } = await db.query(queryFinal, valoresConPaginacion);
+
+  return { clientes: rows.map((r) => ({ ...r, saldo: Number(r.saldo) })), total };
 }
 
 async function obtenerPorId(propietarioId, id) {
