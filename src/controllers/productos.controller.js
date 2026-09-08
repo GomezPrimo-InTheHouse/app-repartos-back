@@ -3,14 +3,20 @@ const { asyncHandler } = require('../utils/asyncHandler');
 const productosService = require('../services/productos.service');
 
 const listar = asyncHandler(async (req, res) => {
-  const { busqueda, activo, stockBajo } = req.query;
-  const productos = await productosService.listar({
+  const { busqueda, activo, stockBajo, ordenarPor, orden, limit, offset } = req.query;
+
+  const resultado = await productosService.listar({
     propietarioId: req.user.propietarioId,
     busqueda,
     activo: activo === undefined ? undefined : activo === 'true',
     stockBajo: stockBajo === 'true',
+    ordenarPor,
+    orden,
+    limit: limit !== undefined ? Number(limit) : undefined,
+    offset: offset !== undefined ? Number(offset) : undefined,
   });
-  res.json({ productos });
+
+  res.json(resultado); // { productos, total }
 });
 
 const obtener = asyncHandler(async (req, res) => {
