@@ -31,7 +31,7 @@ async function obtenerEjecucionDetalle(propietarioId, id) {
            WHERE d2.cliente_id = rei.cliente_id
              AND d2.propietario_id = re.propietario_id
              AND d2.estado = 'entregado'
-             AND d2.fecha::date = re.fecha
+             AND (d2.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires')::date = re.fecha
          )
        ) AS visitado,
        COALESCE(prod.productos, '[]') AS productos
@@ -51,7 +51,7 @@ async function obtenerEjecucionDetalle(propietarioId, id) {
          WHERE d3.cliente_id = rei.cliente_id
            AND d3.propietario_id = re.propietario_id
            AND d3.estado = 'entregado'
-           AND d3.fecha::date = re.fecha
+           AND (d3.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires')::date = re.fecha
          GROUP BY di.producto_id, p.nombre
        ) x
      ) prod ON true

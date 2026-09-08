@@ -1,10 +1,22 @@
-
 // src/controllers/repartosEjecuciones.controller.js
 const { asyncHandler } = require('../utils/asyncHandler');
 const service = require('../services/repartosEjecuciones.service');
+const { env } = require('../config/env');
+
+// "Hoy" calculado en la zona horaria del negocio, NO en la del servidor (que en Render es UTC).
+// Usa Intl.DateTimeFormat con locale 'en-CA', que da formato YYYY-MM-DD directo.
+function hoyEnZonaDelNegocio() {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: env.timezoneNegocio,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(new Date());
+}
 
 const hoy = asyncHandler(async (req, res) => {
-  const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
+  const fecha = req.query.fecha || hoyEnZonaDelNegocio();
   const ejecuciones = await service.obtenerOGenerarDelDia({
     propietarioId: req.user.propietarioId,
     fecha,
@@ -32,13 +44,8 @@ const obtener = asyncHandler(async (req, res) => {
 });
 
 const actualizarItem = asyncHandler(async (req, res) => {
-  const { visitado, productos } = req.body;
-  const item = await service.actualizarItemEjecucion(
-    req.user.propietarioId,
-    req.params.id,
-    req.params.itemId,
-    { visitado, productos }
-  );
+  const { visitado } = req.body;
+  const item = await service.actualizarItemEjecucion(req.user.propietarioId, req.params.id, req.params.itemId, { visitado });
   res.json({ item });
 });
 

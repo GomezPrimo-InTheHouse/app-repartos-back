@@ -34,7 +34,9 @@ const env = {
 
   cookieName: process.env.COOKIE_NAME || 'app_repartos_session',
 
-  // Opcionales: se validan recién en el momento de usarse (importación de clientes por IA)
+  // Zona horaria del negocio, para calcular "hoy" correctamente sin importar dónde corra el servidor
+  timezoneNegocio: process.env.TIMEZONE_NEGOCIO || 'America/Argentina/Buenos_Aires',
+
   geminiApiKey: process.env.GEMINI_API_KEY || null,
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || null,
 
