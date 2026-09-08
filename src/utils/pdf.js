@@ -31,11 +31,15 @@ function escribirEstadoCuentaCliente(doc, { cliente, despachos, pagos, totalDesp
 
   despachos.forEach((d) => {
     doc.fontSize(10).text(`Remito #${d.numero} - ${formatoFecha(d.fecha)} - Total: ${formatoMoneda(d.total)}`);
-    d.items.forEach((item) => {
-      doc.fontSize(9).text(
-        `   ${item.cantidad} x ${item.producto_nombre} @ ${formatoMoneda(item.precio_unitario)} = ${formatoMoneda(item.subtotal)}`
-      );
-    });
+    if (d.tipo === 'solo_devolucion') {
+      doc.fontSize(9).text('   (Solo devolución de envases, sin productos)');
+    } else {
+      d.items.forEach((item) => {
+        doc.fontSize(9).text(
+          `   ${item.cantidad} x ${item.producto_nombre} @ ${formatoMoneda(item.precio_unitario)} = ${formatoMoneda(item.subtotal)}`
+        );
+      });
+    }
     doc.moveDown(0.3);
   });
 
