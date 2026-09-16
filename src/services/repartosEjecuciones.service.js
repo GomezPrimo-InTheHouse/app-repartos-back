@@ -23,7 +23,7 @@ async function obtenerEjecucionDetalle(propietarioId, id) {
 
   const { rows: items } = await db.query(
     `SELECT
-       rei.id, rei.cliente_id, c.nombre AS cliente_nombre, rei.orden,
+       rei.id, rei.cliente_id, c.nombre AS cliente_nombre, c.porcentaje_aumento, rei.orden,
        (
          rei.visitado
          OR EXISTS (
