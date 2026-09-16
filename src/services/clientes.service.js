@@ -28,7 +28,7 @@ function construirQueryBase({ propietarioId, busqueda, activo, barrio }) {
   const sql = `
     SELECT
       c.id, c.nombre, c.dni, c.telefono, c.direccion, c.barrio, c.localidad,
-      c.dias_credito, c.limite_credito, c.foto_url, c.activo, c.created_at,
+      c.dias_credito, c.limite_credito, c.porcentaje_aumento, c.foto_url, c.activo, c.created_at,
       ${saldoExpr} AS saldo
     FROM clientes c
     LEFT JOIN (
@@ -89,7 +89,14 @@ async function listar({ propietarioId, busqueda, activo, barrio, ordenarPor, ord
 
   const { rows } = await db.query(queryFinal, valoresFinal);
 
-  return { clientes: rows.map((r) => ({ ...r, saldo: Number(r.saldo) })), total };
+  return {
+    clientes: rows.map((r) => ({
+      ...r,
+      saldo: Number(r.saldo),
+      porcentaje_aumento: Number(r.porcentaje_aumento),
+    })),
+    total,
+  };
 }
 
 async function obtenerPorId(propietarioId, id) {
@@ -100,13 +107,13 @@ async function obtenerPorId(propietarioId, id) {
   return rows[0] || null;
 }
 
-async function crear({ propietarioId, nombre, dni, telefono, direccion, barrio, localidad, dias_credito, limite_credito, foto_url, notas, createdBy }) {
+async function crear({ propietarioId, nombre, dni, telefono, direccion, barrio, localidad, dias_credito, limite_credito, porcentaje_aumento, foto_url, notas, createdBy }) {
   try {
     const { rows } = await db.query(
-      `INSERT INTO clientes (propietario_id, nombre, dni, telefono, direccion, barrio, localidad, dias_credito, limite_credito, foto_url, notas, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `INSERT INTO clientes (propietario_id, nombre, dni, telefono, direccion, barrio, localidad, dias_credito, limite_credito, porcentaje_aumento, foto_url, notas, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
-      [propietarioId, nombre, dni || null, telefono, direccion, barrio, localidad, dias_credito ?? 30, limite_credito ?? 0, foto_url, notas, createdBy]
+      [propietarioId, nombre, dni || null, telefono, direccion, barrio, localidad, dias_credito ?? 30, limite_credito ?? 0, porcentaje_aumento ?? 0, foto_url, notas, createdBy]
     );
     return rows[0];
   } catch (err) {
@@ -118,7 +125,7 @@ async function crear({ propietarioId, nombre, dni, telefono, direccion, barrio, 
 }
 
 async function actualizar(propietarioId, id, campos) {
-  const permitidos = ['nombre', 'dni', 'telefono', 'direccion', 'barrio', 'localidad', 'dias_credito', 'limite_credito', 'foto_url', 'notas', 'activo'];
+  const permitidos = ['nombre', 'dni', 'telefono', 'direccion', 'barrio', 'localidad', 'dias_credito', 'limite_credito', 'porcentaje_aumento', 'foto_url', 'notas', 'activo'];
   const sets = [];
   const valores = [];
 

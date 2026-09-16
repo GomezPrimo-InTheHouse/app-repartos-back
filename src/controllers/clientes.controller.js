@@ -2,6 +2,10 @@
 const { asyncHandler } = require('../utils/asyncHandler');
 const clientesService = require('../services/clientes.service');
 
+function esPorcentajeInvalido(valor) {
+  return valor !== undefined && (typeof valor !== 'number' || Number.isNaN(valor) || valor < 0);
+}
+
 const listar = asyncHandler(async (req, res) => {
   const { busqueda, activo, barrio, ordenarPor, orden, soloDeudores, saldoMinimo, limit, offset } = req.query;
 
@@ -30,9 +34,12 @@ const obtener = asyncHandler(async (req, res) => {
 });
 
 const crear = asyncHandler(async (req, res) => {
-  const { nombre } = req.body;
+  const { nombre, porcentaje_aumento } = req.body;
   if (!nombre) {
     return res.status(400).json({ error: 'El nombre es requerido' });
+  }
+  if (esPorcentajeInvalido(porcentaje_aumento)) {
+    return res.status(400).json({ error: 'El porcentaje de aumento debe ser un número mayor o igual a 0' });
   }
 
   const cliente = await clientesService.crear({
@@ -44,6 +51,11 @@ const crear = asyncHandler(async (req, res) => {
 });
 
 const actualizar = asyncHandler(async (req, res) => {
+  const { porcentaje_aumento } = req.body;
+  if (esPorcentajeInvalido(porcentaje_aumento)) {
+    return res.status(400).json({ error: 'El porcentaje de aumento debe ser un número mayor o igual a 0' });
+  }
+
   const cliente = await clientesService.actualizar(req.user.propietarioId, req.params.id, req.body);
   if (!cliente) {
     return res.status(404).json({ error: 'Cliente no encontrado' });
