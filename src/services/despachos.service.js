@@ -387,7 +387,7 @@
 
 // src/services/despachos.service.js
 const db = require('../config/db');
-const { resolverPrecioLinea } = require('./pricing.service');
+const { resolverPrecioLinea } = require('./pricing.services');
 
 async function obtenerSaldoCliente(executor, propietarioId, clienteId) {
   const { rows } = await executor.query(
