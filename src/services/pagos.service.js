@@ -62,13 +62,17 @@ async function listar({ propietarioId, cliente_id, estado, desde, hasta, limit, 
     valores.push(estado);
     condiciones.push(`p.estado = $${valores.length}`);
   }
+  // fecha es timestamptz: comparar directo contra un string 'YYYY-MM-DD' lo castea a
+  // medianoche UTC, no medianoche Argentina. Con AT TIME ZONE convertimos el instante
+  // guardado a la fecha local (ART) antes de compararlo — mismo fix aplicado en
+  // reportes.service.js y repartosEjecuciones.service.js para el mismo problema.
   if (desde) {
     valores.push(desde);
-    condiciones.push(`p.fecha >= $${valores.length}`);
+    condiciones.push(`(p.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires')::date >= $${valores.length}::date`);
   }
   if (hasta) {
     valores.push(hasta);
-    condiciones.push(`p.fecha <= $${valores.length}`);
+    condiciones.push(`(p.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires')::date <= $${valores.length}::date`);
   }
 
   const whereClause = condiciones.join(' AND ');
