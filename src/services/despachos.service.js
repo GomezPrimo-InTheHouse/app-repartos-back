@@ -1,5 +1,7 @@
+
 // // src/services/despachos.service.js
 // const db = require('../config/db');
+// const { resolverPrecioLinea } = require('./pricing.services');
 
 // async function obtenerSaldoCliente(executor, propietarioId, clienteId) {
 //   const { rows } = await executor.query(
@@ -63,13 +65,14 @@
 //           );
 //         }
 
-//         const subtotal = Number(item.cantidad) * Number(producto.precio_venta);
+//         const precioAplicado = resolverPrecioLinea(cliente, producto);
+//         const subtotal = Number(item.cantidad) * precioAplicado;
 //         total += subtotal;
 
 //         itemsProcesados.push({
 //           producto_id: producto.id,
 //           cantidad: item.cantidad,
-//           precio_unitario: producto.precio_venta,
+//           precio_unitario: precioAplicado,
 //           costo_unitario: producto.costo_unitario,
 //           maneja_envase: producto.maneja_envase,
 //           envases_devueltos: Number(item.envases_devueltos) || 0,
@@ -387,7 +390,6 @@
 
 // src/services/despachos.service.js
 const db = require('../config/db');
-const { resolverPrecioLinea } = require('./pricing.services');
 
 async function obtenerSaldoCliente(executor, propietarioId, clienteId) {
   const { rows } = await executor.query(
@@ -424,6 +426,12 @@ async function crear({ propietarioId, cliente_id, items, envases_devueltos_suelt
       throw Object.assign(new Error('Cliente no encontrado'), { status: 404 });
     }
 
+    const { rows: propRows } = await client.query(
+      'SELECT usa_produccion FROM propietarios WHERE id = $1',
+      [propietarioId]
+    );
+    const controlaStock = Boolean(propRows[0]?.usa_produccion);
+
     const saldoActual = await obtenerSaldoCliente(client, propietarioId, cliente_id);
 
     let total = 0;
@@ -451,18 +459,40 @@ async function crear({ propietarioId, cliente_id, items, envases_devueltos_suelt
           );
         }
 
-        const precioAplicado = resolverPrecioLinea(cliente, producto);
-        const subtotal = Number(item.cantidad) * precioAplicado;
+        const subtotal = Number(item.cantidad) * Number(producto.precio_venta);
         total += subtotal;
 
         itemsProcesados.push({
           producto_id: producto.id,
           cantidad: item.cantidad,
-          precio_unitario: precioAplicado,
+          precio_unitario: producto.precio_venta,
           costo_unitario: producto.costo_unitario,
           maneja_envase: producto.maneja_envase,
           envases_devueltos: Number(item.envases_devueltos) || 0,
         });
+      }
+    }
+
+    // Control de stock (solo si la empresa tiene activo el flujo de compras/stock).
+    // El UPDATE condicional es atómico: si no alcanza el stock, no descuenta nada.
+    if (controlaStock && itemsProcesados.length > 0) {
+      const porProducto = new Map();
+      for (const it of itemsProcesados) {
+        porProducto.set(it.producto_id, (porProducto.get(it.producto_id) || 0) + Number(it.cantidad));
+      }
+      for (const [productoId, cantidad] of [...porProducto.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+        const { rowCount } = await client.query(
+          `UPDATE productos SET stock_actual = stock_actual - $1
+           WHERE id = $2 AND propietario_id = $3 AND stock_actual >= $1`,
+          [cantidad, productoId, propietarioId]
+        );
+        if (rowCount === 0) {
+          const { rows } = await client.query('SELECT nombre, stock_actual FROM productos WHERE id = $1', [productoId]);
+          throw Object.assign(
+            new Error(`Stock insuficiente de "${rows[0].nombre}": disponible ${Number(rows[0].stock_actual)}, solicitado ${cantidad}`),
+            { status: 400, code: 'STOCK_INSUFICIENTE' }
+          );
+        }
       }
     }
 
@@ -500,10 +530,10 @@ async function crear({ propietarioId, cliente_id, items, envases_devueltos_suelt
     const tipo = tieneItems ? 'venta' : 'solo_devolucion';
 
     const { rows: despachoRows } = await client.query(
-      `INSERT INTO despachos (propietario_id, cliente_id, total, tipo, alerta_credito_al_momento, notas, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO despachos (propietario_id, cliente_id, total, tipo, alerta_credito_al_momento, notas, created_by, stock_descontado)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [propietarioId, cliente_id, total, tipo, alertaCredito, notas, createdBy]
+      [propietarioId, cliente_id, total, tipo, alertaCredito, notas, createdBy, controlaStock && itemsProcesados.length > 0]
     );
     const despacho = despachoRows[0];
 
@@ -581,6 +611,20 @@ async function anular(propietarioId, id, { motivo, anuladoPor }) {
           'Reversión automática por anulación del despacho',
           anuladoPor,
         ]
+      );
+    }
+
+    // Reponer stock solo si este despacho lo había descontado
+    if (despacho.stock_descontado) {
+      await client.query(
+        `UPDATE productos p
+         SET stock_actual = p.stock_actual + s.cantidad
+         FROM (
+           SELECT producto_id, SUM(cantidad) AS cantidad
+           FROM despacho_items WHERE despacho_id = $1 GROUP BY producto_id
+         ) s
+         WHERE p.id = s.producto_id AND p.propietario_id = $2`,
+        [id, propietarioId]
       );
     }
 
