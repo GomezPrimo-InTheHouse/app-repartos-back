@@ -1,3 +1,4 @@
+
 // // src/services/repartosEjecuciones.service.js
 // const db = require('../config/db');
 
@@ -63,44 +64,79 @@
 //   return { ...ejecucion, items };
 // }
 
-// // Ya no copia productos estimados: la ejecución solo necesita saber qué clientes visitar.
-// async function generarEjecucion({ propietarioId, lista, fecha }) {
+// // Alinea los clientes de una ejecución NO cerrada con los de su lista (la lista es la fuente de verdad):
+// //  - agrega los clientes que se sumaron a la lista después de generar la ejecución,
+// //  - actualiza el orden de visita,
+// //  - quita los que se sacaron de la lista, salvo que ya tengan actividad ese día
+// //    (marcados como visitados o con un despacho entregado), para no perder historial.
+// // Una ejecución completada queda congelada: es el registro de lo que pasó.
+// async function sincronizarConLista(client, ejecucion, fecha) {
+//   if (ejecucion.estado === 'completado') return;
+
+//   await client.query(
+//     `INSERT INTO reparto_ejecutado_items (reparto_ejecutado_id, cliente_id, orden)
+//      SELECT $1, lri.cliente_id, lri.orden
+//      FROM lista_reparto_items lri
+//      WHERE lri.lista_reparto_id = $2
+//        AND NOT EXISTS (
+//          SELECT 1 FROM reparto_ejecutado_items rei
+//          WHERE rei.reparto_ejecutado_id = $1 AND rei.cliente_id = lri.cliente_id
+//        )`,
+//     [ejecucion.id, ejecucion.lista_reparto_id]
+//   );
+
+//   await client.query(
+//     `UPDATE reparto_ejecutado_items rei
+//      SET orden = lri.orden
+//      FROM lista_reparto_items lri
+//      WHERE rei.reparto_ejecutado_id = $1
+//        AND lri.lista_reparto_id = $2
+//        AND lri.cliente_id = rei.cliente_id
+//        AND rei.orden IS DISTINCT FROM lri.orden`,
+//     [ejecucion.id, ejecucion.lista_reparto_id]
+//   );
+
+//   await client.query(
+//     `DELETE FROM reparto_ejecutado_items rei
+//      WHERE rei.reparto_ejecutado_id = $1
+//        AND rei.visitado IS NOT TRUE
+//        AND NOT EXISTS (
+//          SELECT 1 FROM lista_reparto_items lri
+//          WHERE lri.lista_reparto_id = $2 AND lri.cliente_id = rei.cliente_id
+//        )
+//        AND NOT EXISTS (
+//          SELECT 1 FROM despachos d
+//          WHERE d.cliente_id = rei.cliente_id
+//            AND d.propietario_id = $3
+//            AND d.estado = 'entregado'
+//            AND (d.fecha AT TIME ZONE 'America/Argentina/Buenos_Aires')::date = $4
+//        )`,
+//     [ejecucion.id, ejecucion.lista_reparto_id, ejecucion.propietario_id, fecha]
+//   );
+// }
+
+// // Crea la ejecución del día si no existe y la sincroniza con su lista.
+// // El FOR UPDATE serializa pedidos simultáneos (dos celulares abriendo el reparto a la vez)
+// // para que no se dupliquen clientes.
+// async function obtenerOGenerarEjecucion({ propietarioId, lista, fecha }) {
 //   const client = await db.getClient();
 //   try {
 //     await client.query('BEGIN');
 
-//     const { rows: ejecRows } = await client.query(
+//     await client.query(
 //       `INSERT INTO repartos_ejecutados (propietario_id, lista_reparto_id, fecha)
 //        VALUES ($1, $2, $3)
-//        ON CONFLICT (lista_reparto_id, fecha) DO NOTHING
-//        RETURNING *`,
+//        ON CONFLICT (lista_reparto_id, fecha) DO NOTHING`,
 //       [propietarioId, lista.id, fecha]
 //     );
 
-//     let ejecucion = ejecRows[0];
-
-//     if (!ejecucion) {
-//       const { rows } = await client.query(
-//         'SELECT * FROM repartos_ejecutados WHERE lista_reparto_id = $1 AND fecha = $2',
-//         [lista.id, fecha]
-//       );
-//       ejecucion = rows[0];
-//       await client.query('COMMIT');
-//       return ejecucion;
-//     }
-
-//     const { rows: items } = await client.query(
-//       'SELECT * FROM lista_reparto_items WHERE lista_reparto_id = $1 ORDER BY orden',
-//       [lista.id]
+//     const { rows } = await client.query(
+//       'SELECT * FROM repartos_ejecutados WHERE lista_reparto_id = $1 AND fecha = $2 FOR UPDATE',
+//       [lista.id, fecha]
 //     );
+//     const ejecucion = rows[0];
 
-//     for (const item of items) {
-//       await client.query(
-//         `INSERT INTO reparto_ejecutado_items (reparto_ejecutado_id, cliente_id, orden)
-//          VALUES ($1, $2, $3)`,
-//         [ejecucion.id, item.cliente_id, item.orden]
-//       );
-//     }
+//     await sincronizarConLista(client, ejecucion, fecha);
 
 //     await client.query('COMMIT');
 //     return ejecucion;
@@ -130,12 +166,7 @@
 //   const ejecuciones = [];
 
 //   for (const lista of listas) {
-//     const { rows: existentes } = await db.query(
-//       'SELECT * FROM repartos_ejecutados WHERE lista_reparto_id = $1 AND fecha = $2',
-//       [lista.id, fecha]
-//     );
-
-//     const ejecucion = existentes[0] || (await generarEjecucion({ propietarioId, lista, fecha }));
+//     const ejecucion = await obtenerOGenerarEjecucion({ propietarioId, lista, fecha });
 //     const detalle = await obtenerEjecucionDetalle(propietarioId, ejecucion.id);
 //     ejecuciones.push(detalle);
 //   }
