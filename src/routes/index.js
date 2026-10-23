@@ -1,72 +1,3 @@
-// // // // src/routes/index.js
-// // // const { Router } = require('express');
-
-// // // const router = Router();
-
-// // // router.get('/health', (req, res) => {
-// // //   res.json({ status: 'ok' });
-// // // });
-
-// // // router.use('/auth', require('./auth.routes'));
-// // // router.use('/clientes', require('./clientes.routes'));
-// // // router.use('/productos', require('./productos.routes'));
-// // // router.use('/despachos', require('./despachos.routes'));
-// // // router.use('/pagos', require('./pagos.routes'));
-// // // router.use('/compras-stock', require('./comprasStock.routes'));
-// // // router.use('/dashboard', require('./dashboard.routes'));
-// // // router.use('/reportes', require('./reportes.routes'));
-// // // router.use('/admin', require('./admin.routes'));
-// // // router.use('/empleados', require('./empleados.routes'));
-// // // router.use('/repartos', require('./repartos.routes'));
-
-// // // module.exports = router;
-
-// // // src/routes/index.js
-// // const { Router } = require('express');
-
-// // const router = Router();
-
-// // router.get('/health', (req, res) => {
-// //   res.json({ status: 'ok' });
-// // });
-
-// // router.use('/auth', require('./auth.routes'));
-// // router.use('/clientes', require('./clientes.routes'));
-// // router.use('/productos', require('./productos.routes'));
-// // router.use('/despachos', require('./despachos.routes'));
-// // router.use('/pagos', require('./pagos.routes'));
-// // // router.use('/compras', require('./compras.routes'));
-// // router.use('/produccion', require('./produccion.routes'));
-// // router.use('/dashboard', require('./dashboard.routes'));
-// // router.use('/reportes', require('./reportes.routes'));
-// // router.use('/admin', require('./admin.routes'));
-// // router.use('/empleados', require('./empleados.routes'));
-
-// // module.exports = router;
-
-// // src/routes/index.js
-// const { Router } = require('express');
-
-// const router = Router();
-
-// router.get('/health', (req, res) => {
-//   res.json({ status: 'ok' });
-// });
-
-// router.use('/auth', require('./auth.routes'));
-// router.use('/clientes', require('./clientes.routes'));
-// router.use('/productos', require('./productos.routes'));
-// router.use('/despachos', require('./despachos.routes'));
-// router.use('/pagos', require('./pagos.routes'));
-// router.use('/produccion', require('./produccion.routes'));
-// router.use('/dashboard', require('./dashboard.routes'));
-// router.use('/reportes', require('./reportes.routes'));
-// router.use('/admin', require('./admin.routes'));
-// router.use('/empleados', require('./empleados.routes'));
-// router.use('/repartos', require('./repartos.routes'));
-
-// module.exports = router;
-
 // src/routes/index.js
 const { Router } = require('express');
 
@@ -87,5 +18,6 @@ router.use('/reportes', require('./reportes.routes'));
 router.use('/admin', require('./admin.routes'));
 router.use('/empleados', require('./empleados.routes'));
 router.use('/repartos', require('./repartos.routes'));
+router.use('/geolocalizacion', require('./geolocalizacion.routes'));
 
 module.exports = router;

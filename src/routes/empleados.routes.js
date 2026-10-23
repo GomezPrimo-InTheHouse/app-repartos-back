@@ -1,11 +1,12 @@
 // src/routes/empleados.routes.js
 const { Router } = require('express');
 const empleadosController = require('../controllers/empleados.controller');
-const { requireAuth, requireAdmin } = require('../middleware/auth.middleware');
+const { requireAuth, requireAdmin, requireModuloEmpresa } = require('../middleware/auth.middleware');
 
 const router = Router();
 
-router.use(requireAuth, requireAdmin);
+// "Mi equipo" es un módulo contratable: sin él, la empresa opera solo con su administrador.
+router.use(requireAuth, requireAdmin, requireModuloEmpresa('equipo'));
 
 router.get('/modulos-disponibles', empleadosController.modulosDisponibles);
 router.get('/', empleadosController.listar);

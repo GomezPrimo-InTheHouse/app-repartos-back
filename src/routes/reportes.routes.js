@@ -5,10 +5,13 @@ const { requireAuth, requireModulo } = require('../middleware/auth.middleware');
 
 const router = Router();
 
-router.use(requireAuth, requireModulo('reportes'));
+router.use(requireAuth);
 
-router.get('/cliente/:id', reportesController.estadoCuentaCliente);
-router.get('/general', reportesController.resumenGeneral);
-router.get('/pago/:id', reportesController.comprobantePago);
+// Reportes (módulo contratable)
+router.get('/cliente/:id', requireModulo('reportes'), reportesController.estadoCuentaCliente);
+router.get('/general', requireModulo('reportes'), reportesController.resumenGeneral);
+
+// El comprobante de pago es parte de Pagos (módulo base): se emite aunque la empresa no tenga Reportes.
+router.get('/pago/:id', requireModulo('pagos'), reportesController.comprobantePago);
 
 module.exports = router;

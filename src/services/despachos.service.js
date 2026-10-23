@@ -37,11 +37,16 @@ async function crear({ propietarioId, cliente_id, items, envases_devueltos_suelt
       throw Object.assign(new Error('Cliente no encontrado'), { status: 404 });
     }
 
+    // Con el módulo Producción contratado, el despacho descuenta stock (y se rechaza si no alcanza).
     const { rows: propRows } = await client.query(
-      'SELECT usa_produccion FROM propietarios WHERE id = $1',
+      `SELECT CASE WHEN jsonb_typeof(to_jsonb(p) -> 'modulos') = 'array'
+                   THEN (to_jsonb(p) -> 'modulos') ? 'produccion'
+                   ELSE COALESCE(p.usa_produccion, false)
+              END AS controla_stock
+       FROM propietarios p WHERE p.id = $1`,
       [propietarioId]
     );
-    const controlaStock = Boolean(propRows[0]?.usa_produccion);
+    const controlaStock = Boolean(propRows[0]?.controla_stock);
 
     const saldoActual = await obtenerSaldoCliente(client, propietarioId, cliente_id);
 

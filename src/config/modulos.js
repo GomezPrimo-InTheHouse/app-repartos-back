@@ -1,27 +1,76 @@
 // src/config/modulos.js
-// Lista única de módulos operativos que se pueden habilitar/restringir por empleado.
-// admin y super_admin siempre tienen acceso a todo, esto solo aplica a 'vendedor'.
+// Catálogo único de módulos del sistema.
 //
-// requiereFlag: el módulo solo existe para empresas que tengan ese flag activo en req.user
-// (ver auth.service). Si la empresa no lo tiene, no se ofrece como permiso asignable.
-const MODULOS_DISPONIBLES = [
-  { clave: 'clientes', etiqueta: 'Clientes' },
-  { clave: 'productos', etiqueta: 'Productos' },
-  { clave: 'despachos', etiqueta: 'Despachos' },
-  { clave: 'pagos', etiqueta: 'Pagos' },
-  { clave: 'dashboard', etiqueta: 'Dashboard' },
-  { clave: 'reportes', etiqueta: 'Reportes' },
-  { clave: 'produccion', etiqueta: 'Producción', requiereFlag: 'usaProduccion' },
-  { clave: 'reparto', etiqueta: 'Reparto' },
+// - base: toda empresa los tiene, no se contratan aparte.
+// - contratable: el super admin los activa por empresa (propietarios.modulos). Si la empresa no lo tiene,
+//   el módulo no existe para nadie de esa empresa: ni admin ni vendedor (lo controla requireModulo).
+// - asignable: se le puede habilitar a un vendedor en "Mi equipo" (profiles.permisos).
+//   admin y super_admin no usan permisos: acceden a todo lo que su empresa tiene.
+//
+// Agregar un módulo vendible nuevo = agregar una línea acá + su clave al CHECK de la migración 007.
+const MODULOS = [
+  { clave: 'dashboard', etiqueta: 'Inicio', base: true, asignable: true },
+  { clave: 'clientes', etiqueta: 'Clientes', base: true, asignable: true },
+  { clave: 'productos', etiqueta: 'Productos', base: true, asignable: true },
+  { clave: 'despachos', etiqueta: 'Despachos', base: true, asignable: true },
+  { clave: 'pagos', etiqueta: 'Pagos', base: true, asignable: true },
+  { clave: 'reparto', etiqueta: 'Reparto', contratable: true, asignable: true },
+  { clave: 'reportes', etiqueta: 'Reportes', contratable: true, asignable: true },
+  { clave: 'equipo', etiqueta: 'Mi equipo', contratable: true, asignable: false },
+  { clave: 'produccion', etiqueta: 'Producción', contratable: true, asignable: true },
+  { clave: 'geolocalizacion', etiqueta: 'Mapa', contratable: true, asignable: true },
 ];
 
-const CLAVES_VALIDAS = MODULOS_DISPONIBLES.map((m) => m.clave);
+const MODULOS_CONTRATABLES = MODULOS.filter((m) => m.contratable).map((m) => m.clave);
 
-// Módulos que puede ver/asignar un usuario según los flags de su empresa.
+// Claves que se pueden guardar en profiles.permisos de un vendedor.
+const CLAVES_VALIDAS = MODULOS.filter((m) => m.asignable).map((m) => m.clave);
+
+// Lo que tenía cada empresa antes de la migración 007 (para no cortarle nada si el código
+// se despliega antes que la migración): todo lo existente + los flags que tuviera activos.
+function modulosLegacy(empresa) {
+  const modulos = ['reparto', 'reportes', 'equipo'];
+  if (empresa?.usa_produccion) modulos.push('produccion');
+  if (empresa?.usa_geolocalizacion) modulos.push('geolocalizacion');
+  return modulos;
+}
+
+// Valida y normaliza la lista de módulos contratados (sin repetidos, en el orden del catálogo).
+function normalizarModulosEmpresa(modulos) {
+  if (!Array.isArray(modulos)) {
+    throw Object.assign(new Error('modulos debe ser una lista'), { status: 400 });
+  }
+  const invalidos = modulos.filter((m) => !MODULOS_CONTRATABLES.includes(m));
+  if (invalidos.length > 0) {
+    throw Object.assign(new Error(`Módulo(s) inválido(s): ${invalidos.join(', ')}`), { status: 400 });
+  }
+  return MODULOS_CONTRATABLES.filter((m) => modulos.includes(m));
+}
+
+// ¿La empresa del usuario tiene el módulo? Los de base siempre; las claves desconocidas no se filtran acá.
+function empresaTieneModulo(user, clave) {
+  if (!MODULOS_CONTRATABLES.includes(clave)) return true;
+  return Array.isArray(user?.modulosEmpresa) && user.modulosEmpresa.includes(clave);
+}
+
+function etiquetaModulo(clave) {
+  return MODULOS.find((m) => m.clave === clave)?.etiqueta ?? clave;
+}
+
+// Módulos que el admin puede asignarle a un vendedor: los asignables que su empresa tiene.
 function modulosParaUsuario(user) {
-  return MODULOS_DISPONIBLES
-    .filter((m) => !m.requiereFlag || Boolean(user?.[m.requiereFlag]))
+  return MODULOS
+    .filter((m) => m.asignable && empresaTieneModulo(user, m.clave))
     .map(({ clave, etiqueta }) => ({ clave, etiqueta }));
 }
 
-module.exports = { MODULOS_DISPONIBLES, CLAVES_VALIDAS, modulosParaUsuario };
+module.exports = {
+  MODULOS,
+  MODULOS_CONTRATABLES,
+  CLAVES_VALIDAS,
+  modulosLegacy,
+  normalizarModulosEmpresa,
+  empresaTieneModulo,
+  etiquetaModulo,
+  modulosParaUsuario,
+};
