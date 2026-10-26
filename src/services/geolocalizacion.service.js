@@ -57,7 +57,7 @@ async function listarClientes({ propietarioId, listaId }) {
 
   const { rows } = await db.query(
     `SELECT
-       c.id, c.nombre, c.direccion, c.barrio, c.limite_credito, c.porcentaje_aumento,
+       c.id, c.nombre, c.direccion, c.barrio, c.localidad, c.limite_credito, c.porcentaje_aumento,
        c.latitud, c.longitud, c.ubicacion_origen, c.ubicacion_actualizada_at,
        COALESCE(d.total, 0) - COALESCE(pg.total, 0) AS saldo,
        ${columnaOrden}

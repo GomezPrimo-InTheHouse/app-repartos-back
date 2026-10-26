@@ -1,7 +1,7 @@
 // src/controllers/geolocalizacion.controller.js
 const { asyncHandler } = require('../utils/asyncHandler');
-// const service = require('../services/geolocalizacion.service');
-const service = require('../services/geolocalizacion.service')
+const service = require('../services/geolocalizacion.service');
+const geocodificacion = require('../services/geocodificacion.service');
 
 // GET /geolocalizacion/clientes?lista_id=
 const listarClientes = asyncHandler(async (req, res) => {
@@ -43,4 +43,15 @@ const listarRepartidores = asyncHandler(async (req, res) => {
   res.json({ repartidores });
 });
 
-module.exports = { listarClientes, actualizarUbicacionCliente, registrarMiUbicacion, listarRepartidores };
+// GET /geolocalizacion/buscar-direccion?direccion=&localidad=
+// Sin localidad, usa la más común entre los clientes de la empresa.
+const buscarDireccion = asyncHandler(async (req, res) => {
+  const resultado = await geocodificacion.buscarDireccion({
+    propietarioId: req.user.propietarioId,
+    direccion: req.query.direccion,
+    localidad: req.query.localidad,
+  });
+  res.json(resultado);
+});
+
+module.exports = { listarClientes, actualizarUbicacionCliente, registrarMiUbicacion, listarRepartidores, buscarDireccion };

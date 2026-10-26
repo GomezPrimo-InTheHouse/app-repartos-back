@@ -27,6 +27,13 @@ router.put(
   controller.actualizarUbicacionCliente
 );
 
+// Buscar una dirección para ubicar a un cliente (mismos permisos que ubicarlo).
+router.get(
+  '/buscar-direccion',
+  requireAlgunModulo(['geolocalizacion', 'clientes', 'reparto']),
+  controller.buscarDireccion
+);
+
 // Tab Repartidores: solo el administrador de la empresa.
 router.get('/repartidores', requireAdmin, controller.listarRepartidores);
 
