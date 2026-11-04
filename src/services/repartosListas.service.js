@@ -1,3 +1,204 @@
+// // src/services/repartosListas.service.js
+// const db = require('../config/db');
+
+// // Orden canónico de la semana: los días se guardan siempre en este orden y sin repetidos.
+// const DIAS_VALIDOS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
+
+// // Valida y normaliza dias_semana: array no vacío, solo días válidos, sin duplicados, en orden de semana.
+// function normalizarDias(dias) {
+//   if (!Array.isArray(dias) || dias.length === 0) {
+//     throw Object.assign(new Error('dias_semana debe ser un array con al menos un día'), { status: 400 });
+//   }
+//   const invalidos = dias.filter((d) => !DIAS_VALIDOS.includes(d));
+//   if (invalidos.length > 0) {
+//     throw Object.assign(new Error(`Día(s) inválido(s): ${invalidos.join(', ')}`), { status: 400 });
+//   }
+//   return DIAS_VALIDOS.filter((d) => dias.includes(d));
+// }
+
+// async function obtenerRaw(propietarioId, id) {
+//   const { rows } = await db.query(
+//     'SELECT * FROM listas_reparto WHERE id = $1 AND propietario_id = $2',
+//     [id, propietarioId]
+//   );
+//   return rows[0] || null;
+// }
+
+// async function listar({ propietarioId, tipo, activa }) {
+//   const condiciones = ['propietario_id = $1'];
+//   const valores = [propietarioId];
+
+//   if (tipo) {
+//     valores.push(tipo);
+//     condiciones.push(`tipo = $${valores.length}`);
+//   }
+//   if (activa !== undefined) {
+//     valores.push(activa);
+//     condiciones.push(`activa = $${valores.length}`);
+//   }
+
+//   const { rows } = await db.query(
+//     `SELECT * FROM listas_reparto WHERE ${condiciones.join(' AND ')} ORDER BY nombre`,
+//     valores
+//   );
+//   return rows;
+// }
+
+// // Ya no incluye productos: solo cliente y orden dentro de cada item de la plantilla.
+// async function obtenerPorId(propietarioId, id) {
+//   const lista = await obtenerRaw(propietarioId, id);
+//   if (!lista) return null;
+
+//   const { rows: items } = await db.query(
+//     `SELECT lri.id, lri.cliente_id, c.nombre AS cliente_nombre, lri.orden
+//      FROM lista_reparto_items lri
+//      JOIN clientes c ON c.id = lri.cliente_id
+//      WHERE lri.lista_reparto_id = $1
+//      ORDER BY lri.orden, c.nombre`,
+//     [id]
+//   );
+
+//   return { ...lista, items };
+// }
+
+// async function insertarItems(client, listaId, items) {
+//   for (const [index, item] of items.entries()) {
+//     await client.query(
+//       `INSERT INTO lista_reparto_items (lista_reparto_id, cliente_id, orden) VALUES ($1, $2, $3)`,
+//       [listaId, item.cliente_id, item.orden ?? index]
+//     );
+//   }
+// }
+
+// async function crear({ propietarioId, nombre, tipo, dias_semana, fecha, items, createdBy }) {
+//   if (!['semanal', 'unica'].includes(tipo)) {
+//     throw Object.assign(new Error("tipo debe ser 'semanal' o 'unica'"), { status: 400 });
+//   }
+//   const diasNormalizados = tipo === 'semanal' ? normalizarDias(dias_semana) : null;
+//   if (tipo === 'unica' && !fecha) {
+//     throw Object.assign(new Error('fecha es requerida para listas únicas'), { status: 400 });
+//   }
+
+//   const client = await db.getClient();
+//   let listaId;
+//   try {
+//     await client.query('BEGIN');
+
+//     const { rows: listaRows } = await client.query(
+//       `INSERT INTO listas_reparto (propietario_id, nombre, tipo, dias_semana, fecha, created_by)
+//        VALUES ($1, $2, $3, $4, $5, $6)
+//        RETURNING *`,
+//       [
+//         propietarioId,
+//         nombre,
+//         tipo,
+//         diasNormalizados,
+//         tipo === 'unica' ? fecha : null,
+//         createdBy,
+//       ]
+//     );
+//     listaId = listaRows[0].id;
+
+//     if (Array.isArray(items) && items.length > 0) {
+//       await insertarItems(client, listaId, items);
+//     }
+
+//     await client.query('COMMIT');
+//   } catch (err) {
+//     await client.query('ROLLBACK');
+//     throw err;
+//   } finally {
+//     client.release();
+//   }
+
+//   return obtenerPorId(propietarioId, listaId);
+// }
+
+// async function actualizar(propietarioId, id, campos) {
+//   const actual = await obtenerRaw(propietarioId, id);
+//   if (!actual) return null;
+
+//   const nuevoTipo = campos.tipo ?? actual.tipo;
+//   if (!['semanal', 'unica'].includes(nuevoTipo)) {
+//     throw Object.assign(new Error("tipo debe ser 'semanal' o 'unica'"), { status: 400 });
+//   }
+
+//   let nuevosDias = actual.dias_semana;
+//   let nuevaFecha = actual.fecha;
+
+//   if (nuevoTipo !== actual.tipo) {
+//     if (nuevoTipo === 'semanal') {
+//       nuevosDias = normalizarDias(campos.dias_semana);
+//       nuevaFecha = null;
+//     } else {
+//       if (!campos.fecha) {
+//         throw Object.assign(new Error('fecha es requerida al convertir a unica'), { status: 400 });
+//       }
+//       nuevaFecha = campos.fecha;
+//       nuevosDias = null;
+//     }
+//   } else {
+//     if (nuevoTipo === 'semanal' && campos.dias_semana !== undefined) nuevosDias = normalizarDias(campos.dias_semana);
+//     if (nuevoTipo === 'unica' && campos.fecha !== undefined) nuevaFecha = campos.fecha;
+//   }
+
+//   const nombre = campos.nombre ?? actual.nombre;
+//   const activa = campos.activa ?? actual.activa;
+
+//   const { rows } = await db.query(
+//     `UPDATE listas_reparto SET nombre = $1, tipo = $2, dias_semana = $3, fecha = $4, activa = $5
+//      WHERE id = $6 AND propietario_id = $7
+//      RETURNING *`,
+//     [nombre, nuevoTipo, nuevosDias, nuevaFecha, activa, id, propietarioId]
+//   );
+//   return rows[0];
+// }
+
+// async function eliminar(propietarioId, id) {
+//   const { rows } = await db.query(
+//     'UPDATE listas_reparto SET activa = false WHERE id = $1 AND propietario_id = $2 RETURNING id',
+//     [id, propietarioId]
+//   );
+//   return rows[0] || null;
+// }
+
+// async function agregarItem(propietarioId, listaId, { cliente_id, orden }) {
+//   const lista = await obtenerRaw(propietarioId, listaId);
+//   if (!lista) {
+//     throw Object.assign(new Error('Lista no encontrada'), { status: 404 });
+//   }
+
+//   const { rows } = await db.query(
+//     `INSERT INTO lista_reparto_items (lista_reparto_id, cliente_id, orden) VALUES ($1, $2, $3) RETURNING id`,
+//     [listaId, cliente_id, orden ?? 0]
+//   );
+
+//   return rows[0].id;
+// }
+
+// async function eliminarItem(propietarioId, listaId, itemId) {
+//   const { rows: check } = await db.query(
+//     `SELECT lri.id FROM lista_reparto_items lri
+//      JOIN listas_reparto lr ON lr.id = lri.lista_reparto_id
+//      WHERE lri.id = $1 AND lri.lista_reparto_id = $2 AND lr.propietario_id = $3`,
+//     [itemId, listaId, propietarioId]
+//   );
+//   if (check.length === 0) return null;
+
+//   await db.query('DELETE FROM lista_reparto_items WHERE id = $1', [itemId]);
+//   return { id: itemId };
+// }
+
+// module.exports = {
+//   listar,
+//   obtenerPorId,
+//   crear,
+//   actualizar,
+//   eliminar,
+//   agregarItem,
+//   eliminarItem,
+// };
+
 // src/services/repartosListas.service.js
 const db = require('../config/db');
 
@@ -189,6 +390,80 @@ async function eliminarItem(propietarioId, listaId, itemId) {
   return { id: itemId };
 }
 
+// Guarda el orden de visita de una lista a partir de la secuencia de clientes recibida.
+//  - clienteIds: ids en el orden real de la calle (posición 0 = primer cliente).
+//  - Los clientes de la lista que no vengan en la secuencia quedan al final, en su orden anterior
+//    (cubre el caso de que otra persona haya agregado un cliente mientras tanto).
+//  - Los ids que no están en la lista se ignoran para la lista, pero sí reordenan el reparto del
+//    día abierto: ahí pueden quedar clientes quitados de la lista que ya tuvieron actividad.
+// También reordena las ejecuciones NO completadas de la lista, para que el reparto del día
+// cambie al instante (las completadas quedan congeladas como registro).
+async function reordenarItems(propietarioId, listaId, clienteIds) {
+  if (!Array.isArray(clienteIds) || clienteIds.length === 0) {
+    throw Object.assign(new Error('cliente_ids debe ser una lista con al menos un cliente'), { status: 400 });
+  }
+  const secuencia = [...new Set(clienteIds.map(String))];
+  if (secuencia.length !== clienteIds.length) {
+    throw Object.assign(new Error('Hay clientes repetidos en el orden enviado'), { status: 400 });
+  }
+
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: listaRows } = await client.query(
+      'SELECT id FROM listas_reparto WHERE id = $1 AND propietario_id = $2 FOR UPDATE',
+      [listaId, propietarioId]
+    );
+    if (listaRows.length === 0) {
+      throw Object.assign(new Error('Lista no encontrada'), { status: 404 });
+    }
+
+    // Orden actual de la lista, para ubicar al final a los que no vinieron en la secuencia
+    const { rows: actuales } = await client.query(
+      `SELECT cliente_id::text AS cliente_id FROM lista_reparto_items
+       WHERE lista_reparto_id = $1 ORDER BY orden, id`,
+      [listaId]
+    );
+    const enLista = new Set(actuales.map((r) => r.cliente_id));
+    const enSecuencia = new Set(secuencia);
+    const ordenLista = [
+      ...secuencia.filter((id) => enLista.has(id)),
+      ...actuales.map((r) => r.cliente_id).filter((id) => !enSecuencia.has(id)),
+    ];
+
+    await client.query(
+      `UPDATE lista_reparto_items lri
+       SET orden = s.posicion - 1
+       FROM unnest($2::text[]) WITH ORDINALITY AS s(cliente_id, posicion)
+       WHERE lri.lista_reparto_id = $1 AND lri.cliente_id::text = s.cliente_id`,
+      [listaId, ordenLista]
+    );
+
+    // Reparto del día abierto: misma secuencia (incluye a los que quedaron por tener actividad)
+    const ordenEjecucion = [...secuencia, ...ordenLista.filter((id) => !enSecuencia.has(id))];
+    await client.query(
+      `UPDATE reparto_ejecutado_items rei
+       SET orden = s.posicion - 1
+       FROM repartos_ejecutados re, unnest($2::text[]) WITH ORDINALITY AS s(cliente_id, posicion)
+       WHERE re.id = rei.reparto_ejecutado_id
+         AND re.lista_reparto_id = $1
+         AND re.estado IS DISTINCT FROM 'completado'
+         AND rei.cliente_id::text = s.cliente_id`,
+      [listaId, ordenEjecucion]
+    );
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  return obtenerPorId(propietarioId, listaId);
+}
+
 module.exports = {
   listar,
   obtenerPorId,
@@ -197,4 +472,5 @@ module.exports = {
   eliminar,
   agregarItem,
   eliminarItem,
+  reordenarItems,
 };
