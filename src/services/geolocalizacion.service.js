@@ -1,7 +1,9 @@
 // src/services/geolocalizacion.service.js
 // Módulo opcional Geolocalización: ubicación de clientes en el mapa y última posición de cada empleado.
 const db = require('../config/db');
+const geocodificacion = require('./geocodificacion.service');
 
+// Orígenes que puede mandar el front. 'auto' lo pone solo el servidor (ubicarAutomatico).
 const ORIGENES = ['manual', 'gps'];
 
 function errorHttp(mensaje, status) {
@@ -114,6 +116,55 @@ async function actualizarUbicacionCliente(propietarioId, clienteId, { latitud, l
   return { ...r, latitud: aNumero(r.latitud), longitud: aNumero(r.longitud) };
 }
 
+// Intenta ubicar a un cliente buscando su dirección (Nominatim, vía geocodificacion.service).
+// Devuelve { estado, cliente } donde estado es:
+//   'ubicado'       → se encontró la dirección con altura exacta y se guardó el pin (origen 'auto')
+//   'ya_ubicado'    → ya tenía ubicación: no se toca (nunca pisa un pin manual o de GPS)
+//   'sin_direccion' → el cliente no tiene dirección cargada
+//   'aproximado'    → el mapa solo tiene la calle, no la altura: no se guarda (el pin quedaría lejos)
+//   'no_encontrado' → la dirección no aparece en el mapa
+// Si el buscador no responde, lanza el error 502 de geocodificacion (el front lo informa como error).
+async function ubicarAutomatico(propietarioId, clienteId) {
+  const { rows } = await db.query(
+    `SELECT id, nombre, direccion, localidad, latitud
+     FROM clientes WHERE id = $1 AND propietario_id = $2`,
+    [clienteId, propietarioId]
+  );
+  const cliente = rows[0];
+  if (!cliente) throw errorHttp('Cliente no encontrado', 404);
+
+  const base = { id: cliente.id, nombre: cliente.nombre, direccion: cliente.direccion };
+  if (cliente.latitud !== null) return { estado: 'ya_ubicado', cliente: base };
+
+  const direccion = String(cliente.direccion ?? '').trim();
+  if (direccion.length < 3) return { estado: 'sin_direccion', cliente: base };
+
+  const { resultados } = await geocodificacion.buscarDireccion({
+    propietarioId,
+    direccion,
+    localidad: cliente.localidad,
+  });
+  const exacto = resultados.find((r) => r.exacta);
+  if (!exacto) {
+    return { estado: resultados.length ? 'aproximado' : 'no_encontrado', cliente: base };
+  }
+
+  // "latitud IS NULL": si alguien lo ubicó a mano mientras se buscaba, se respeta su pin
+  const { rows: actualizados } = await db.query(
+    `UPDATE clientes
+     SET latitud = $1, longitud = $2, ubicacion_origen = 'auto', ubicacion_actualizada_at = now()
+     WHERE id = $3 AND propietario_id = $4 AND latitud IS NULL
+     RETURNING id`,
+    [exacto.latitud, exacto.longitud, clienteId, propietarioId]
+  );
+  if (actualizados.length === 0) return { estado: 'ya_ubicado', cliente: base };
+
+  return {
+    estado: 'ubicado',
+    cliente: { ...base, latitud: exacto.latitud, longitud: exacto.longitud, etiqueta: exacto.etiqueta },
+  };
+}
+
 // Última posición del usuario logueado: una fila por usuario, se pisa en cada envío.
 async function registrarMiUbicacion({ userId, propietarioId, latitud, longitud, precision }) {
   const { lat, lng } = validarCoordenadas(latitud, longitud);
@@ -157,6 +208,7 @@ async function listarRepartidores(propietarioId) {
 module.exports = {
   listarClientes,
   actualizarUbicacionCliente,
+  ubicarAutomatico,
   registrarMiUbicacion,
   listarRepartidores,
 };

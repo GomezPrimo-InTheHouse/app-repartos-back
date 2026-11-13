@@ -54,4 +54,18 @@ const buscarDireccion = asyncHandler(async (req, res) => {
   res.json(resultado);
 });
 
-module.exports = { listarClientes, actualizarUbicacionCliente, registrarMiUbicacion, listarRepartidores, buscarDireccion };
+// POST /geolocalizacion/clientes/:id/ubicar-automatico
+// Busca la dirección del cliente y, si la encuentra con altura exacta, guarda el pin.
+const ubicarAutomatico = asyncHandler(async (req, res) => {
+  const resultado = await service.ubicarAutomatico(req.user.propietarioId, req.params.id);
+  res.json(resultado);
+});
+
+module.exports = {
+  listarClientes,
+  actualizarUbicacionCliente,
+  ubicarAutomatico,
+  registrarMiUbicacion,
+  listarRepartidores,
+  buscarDireccion,
+};

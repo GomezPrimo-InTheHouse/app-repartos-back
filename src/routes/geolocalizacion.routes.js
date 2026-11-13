@@ -27,6 +27,14 @@ router.put(
   controller.actualizarUbicacionCliente
 );
 
+// Ubicar automáticamente a un cliente con su dirección cargada: al sumarlo a una lista de reparto
+// o con "Ubicar automáticamente" en el Mapa (mismos permisos que ubicarlo a mano).
+router.post(
+  '/clientes/:id/ubicar-automatico',
+  requireAlgunModulo(['geolocalizacion', 'clientes', 'reparto']),
+  controller.ubicarAutomatico
+);
+
 // Buscar una dirección para ubicar a un cliente (mismos permisos que ubicarlo).
 router.get(
   '/buscar-direccion',
