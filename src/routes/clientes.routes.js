@@ -3,10 +3,14 @@ const { Router } = require('express');
 const clientesController = require('../controllers/clientes.controller');
 const clientesImportController = require('../controllers/clientesImport.controller');
 const envasesController = require('../controllers/envases.controller');
-const { requireAuth, requireModulo } = require('../middleware/auth.middleware');
+const { requireAuth, requireModulo, requireAlgunModulo } = require('../middleware/auth.middleware');
 const { upload } = require('../middleware/upload.middleware');
 
 const router = Router();
+
+// Antes del router.use: el teléfono también se carga desde el aviso por WhatsApp del módulo Reparto,
+// así que alcanza con tener Clientes o Reparto.
+router.put('/:id/telefono', requireAuth, requireAlgunModulo(['clientes', 'reparto']), clientesController.actualizarTelefono);
 
 router.use(requireAuth, requireModulo('clientes'));
 

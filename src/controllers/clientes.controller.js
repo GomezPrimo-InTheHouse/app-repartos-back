@@ -71,4 +71,21 @@ const eliminar = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { listar, obtener, crear, actualizar, eliminar };
+// PUT /clientes/:id/telefono  body: { telefono }
+// Lo usa el aviso por WhatsApp del reparto: el número que se carga ahí queda como teléfono del cliente.
+// Se guarda tal como se escribió (sin espacios al borde); solo se valida que tenga una cantidad razonable de dígitos.
+const actualizarTelefono = asyncHandler(async (req, res) => {
+  const telefono = String(req.body?.telefono ?? '').trim();
+  const digitos = telefono.replace(/\D/g, '');
+  if (digitos.length < 8 || digitos.length > 15 || telefono.length > 30) {
+    return res.status(400).json({ error: 'Ingresá un teléfono válido: código de área y número, por ejemplo 353 4123456' });
+  }
+
+  const cliente = await clientesService.actualizar(req.user.propietarioId, req.params.id, { telefono });
+  if (!cliente) {
+    return res.status(404).json({ error: 'Cliente no encontrado' });
+  }
+  res.json({ cliente: { id: cliente.id, nombre: cliente.nombre, telefono: cliente.telefono } });
+});
+
+module.exports = { listar, obtener, crear, actualizar, eliminar, actualizarTelefono };

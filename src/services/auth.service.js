@@ -31,6 +31,7 @@ async function obtenerPerfil(userId) {
     propietario_activo: empresa.activo !== false,
     usa_compras_stock: Boolean(empresa.usa_compras_stock),
     modulos_empresa: modulosEmpresa,
+    nombre_negocio: empresa.nombre_negocio ?? null,
   };
 }
 
@@ -45,6 +46,8 @@ function datosSesion(perfil) {
     usaComprasStock: perfil.usa_compras_stock,
     usaProduccion: perfil.modulos_empresa.includes('produccion'),
     usaGeolocalizacion: perfil.modulos_empresa.includes('geolocalizacion'),
+    // Nombre del negocio: lo usan los mensajes de WhatsApp a clientes ("Te escribimos de …")
+    empresaNombre: perfil.nombre_negocio,
   };
 }
 
